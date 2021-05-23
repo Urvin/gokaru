@@ -1,0 +1,31 @@
+# listen port
+port: 8101
+
+# padding value for add padding cast
+padding: 10
+
+# default quality for images
+quality_default: 80
+
+# quality for different formats
+quality:
+  - format: jpg
+    quality: 80
+    conditions:
+      - from: 0
+        to: 1000
+        quality: 90
+      - from: 1000
+        to: 1800
+        quality: 85
+  - format: webp
+    quality: 80
+    conditions:
+      - from: 0
+        to: 1000
+        quality: 90
+      - from: 1000
+        to: 1800
+        quality: 85
+  - format: png
+    quality: 100 # number of zopfli runs

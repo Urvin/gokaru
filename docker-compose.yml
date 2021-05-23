@@ -1,0 +1,19 @@
+version: "3"
+
+services:
+  gokaru:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+          MODULE_PATH: github.com/urvin/gokaru
+    ports:
+      - "8101:8101"
+    restart: unless-stopped
+    volumes:
+      - "./:/go/src/github.com/urvin/gokaru"
+      - "./storage/:/go/src/github.com/urvin/gokaru/storage"
+#  libvips:
+#    build:
+#      context: ./docker/libvips
+#      dockerfile: Dockerfile

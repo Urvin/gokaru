@@ -13,7 +13,3 @@ services:
     volumes:
       - "./:/go/src/github.com/urvin/gokaru"
       - "./storage/:/go/src/github.com/urvin/gokaru/storage"
-#  libvips:
-#    build:
-#      context: ./docker/libvips
-#      dockerfile: Dockerfile

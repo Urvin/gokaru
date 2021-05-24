@@ -1,6 +1,9 @@
 # listen port
 port: 8101
 
+# Secret signature salt
+signature_salt: 'secret'
+
 # padding value for add padding cast
 padding: 10
 

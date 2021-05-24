@@ -1,12 +1,14 @@
 package security
 
 import (
+	"github.com/urvin/gokaru/internal/config"
 	"github.com/urvin/gokaru/internal/helper"
 	"strconv"
 )
 
 func signatureSalt() string {
-	return "nocheck"
+	salt := config.Get().SignatureSalt
+	return salt
 }
 
 func GenerateSignature(sourceType, fileCategory, fileName string, width, height, cast int) string {

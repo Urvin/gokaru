@@ -14,7 +14,7 @@ you want. Thumbnails are creating with Mozjpeg, ZopfliPNG and WebP support.
 docker-compose up -d
 ```
 
-Now Gokaru server 8101 port. Check config.yml for this and other settings
+Now Gokaru server runs on 8101 port. Check config.yml for port and other settings
 
 ## Usage
 

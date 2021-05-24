@@ -107,6 +107,10 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 	}
 
 	quality := getQuality(width, height, extension)
+	saveQuality := quality
+	if saveQuality > 100 {
+		saveQuality = 100
+	}
 
 	// Animated image
 	if info.Animated && helper.StringInSlice(extension, FORMATS_ANIMATED) {
@@ -132,7 +136,7 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 				return
 			}
 		} else {
-			imagickParams = append(imagickParams, "-layers", "optimize", "-quality", strconv.Itoa(quality))
+			imagickParams = append(imagickParams, "-layers", "optimize", "-quality", strconv.Itoa(saveQuality))
 			err = execMagick(origin, destination, imagickParams)
 		}
 	} else {
@@ -154,17 +158,12 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 				return err
 			}
 
-			//_, err = helper.Exec("mozjpeg", "-optimize", "-progressive", "-quality", strconv.Itoa(quality), destinationTempFile.Name(), ">", destination)
-			_, err = helper.Exec("sh", "-c", "mozjpeg -optimize -progressive -quality "+strconv.Itoa(quality)+" "+shellescape.Quote(destinationTempFile.Name())+" > "+shellescape.Quote(destination))
+			_, err = helper.Exec("sh", "-c", "mozjpeg -optimize -progressive -quality "+strconv.Itoa(saveQuality)+" "+shellescape.Quote(destinationTempFile.Name())+" > "+shellescape.Quote(destination))
 			if err != nil {
 				return
 			}
 
 		} else {
-			saveQuality := quality
-			if saveQuality > 100 {
-				saveQuality = 100
-			}
 			err = execMagick(origin, destination, append(imagickParams, "-quality", strconv.Itoa(saveQuality)))
 			if err != nil {
 				return err

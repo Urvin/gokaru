@@ -1,4 +1,4 @@
-ARG GOLANG_VERSION=1.16
+ARG GOLANG_VERSION=1.17.1
 FROM golang:${GOLANG_VERSION}-alpine
 LABEL maintainer="Yuriy Gorbachev <yuriy@gorbachev.rocks>"
 

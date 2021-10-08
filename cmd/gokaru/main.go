@@ -1,14 +1,14 @@
 package main
 
 import (
-	"fmt"
-	"github.com/gorilla/mux"
+	"github.com/fasthttp/router"
 	log "github.com/sirupsen/logrus"
 	"github.com/urvin/gokaru/internal/config"
 	"github.com/urvin/gokaru/internal/helper"
 	"github.com/urvin/gokaru/internal/security"
 	"github.com/urvin/gokaru/internal/storage"
 	"github.com/urvin/gokaru/internal/thumbnailer"
+	"github.com/valyala/fasthttp"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -21,45 +21,38 @@ func main() {
 
 	config.Initialize()
 
-	router := mux.NewRouter()
-
-	router.HandleFunc("/health", healthHandler)
-	router.HandleFunc("/favicon.ico", faviconHandler).Methods("GET")
-	router.HandleFunc("/{sourceType:image|file}/{category}/{filename}", uploadHandler).Methods("PUT")
-	router.HandleFunc("/{sourceType:image|file}/{category}/{filename}", removeHandler).Methods("DELETE")
-	router.HandleFunc("/{sourceType:image|file}/{category}/{filename}", originHandler).Methods("GET")
-	router.HandleFunc("/{sourceType:image|file}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", thumbnailHandler).Methods("GET")
+	r := router.New()
+	r.GET("/health", healthHandler)
+	r.GET("/favicon.ico", faviconHandler)
+	r.PUT("/{sourceType:^image|file$}/{category}/{filename}", uploadHandler)
+	r.DELETE("/{sourceType:^image|file$}/{category}/{filename}", removeHandler)
+	r.GET("/{sourceType:^image|file$}/{category}/{filename}", originHandler)
+	r.GET("/{sourceType:^image|file$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", thumbnailHandler)
 
 	log.Info("Gokaru starting")
-	http.ListenAndServe(":"+strconv.Itoa(config.Get().Port), router)
+	log.Error(fasthttp.ListenAndServe(":"+strconv.Itoa(config.Get().Port), r.Handler))
 }
 
-func healthHandler(response http.ResponseWriter, request *http.Request) {
-	response.WriteHeader(http.StatusOK)
-	fmt.Fprintf(response, http.StatusText(http.StatusOK))
+func healthHandler(context *fasthttp.RequestCtx) {
+	context.SetStatusCode(fasthttp.StatusOK)
+	context.WriteString(fasthttp.StatusMessage(fasthttp.StatusOK))
 }
 
-func faviconHandler(response http.ResponseWriter, request *http.Request) {
-	response.WriteHeader(http.StatusOK)
+func faviconHandler(context *fasthttp.RequestCtx) {
+	context.SetStatusCode(fasthttp.StatusOK)
 }
 
-func uploadHandler(response http.ResponseWriter, request *http.Request) {
-	params := mux.Vars(request)
-	sourceType := params["sourceType"]
-	fileCategory := params["category"]
-	fileName := params["filename"]
+func uploadHandler(context *fasthttp.RequestCtx) {
+	sourceType := context.UserValue("sourceType").(string)
+	fileCategory := context.UserValue("category").(string)
+	fileName := context.UserValue("filename").(string)
 
 	destinationFileName := storage.GetStorageOriginFilename(sourceType, fileCategory, fileName)
 	destinationPath := filepath.Dir(destinationFileName)
 
 	err := helper.CreatePathIfNotExists(destinationPath)
 
-	uploadedData, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		http.Error(response, "Cannot read request body: "+err.Error(), http.StatusBadRequest)
-		log.Error("Gokaru.upload: cannot read request body: " + err.Error())
-		return
-	}
+	uploadedData := context.Request.Body()
 
 	if sourceType == "image" {
 		contentType := http.DetectContentType(uploadedData)
@@ -69,7 +62,7 @@ func uploadHandler(response http.ResponseWriter, request *http.Request) {
 			contentType != "image/webp" &&
 			contentType != "image/png" &&
 			contentType != "image/jpeg" {
-			http.Error(response, "Uploaded file is not an image, "+contentType+" uploaded", http.StatusBadRequest)
+			context.Error("Uploaded file is not an image, "+contentType+" uploaded", fasthttp.StatusBadRequest)
 			log.Error("Gokaru.upload: uploaded file is not an image: " + err.Error())
 			return
 		}
@@ -77,14 +70,14 @@ func uploadHandler(response http.ResponseWriter, request *http.Request) {
 
 	temporaryFile, err := ioutil.TempFile("", "upload")
 	if err != nil {
-		http.Error(response, "Cannot create a temporary file: "+err.Error(), http.StatusInternalServerError)
+		context.Error("Cannot create a temporary file: "+err.Error(), fasthttp.StatusInternalServerError)
 		log.Error("Gokaru.upload: Cannot create a temporary file: " + err.Error())
 		return
 	}
 
 	err = ioutil.WriteFile(temporaryFile.Name(), uploadedData, 0644)
 	if err != nil {
-		http.Error(response, "Cannot write into temporary file: "+err.Error(), http.StatusInternalServerError)
+		context.Error("Cannot write into temporary file: "+err.Error(), fasthttp.StatusInternalServerError)
 		log.Error("Gokaru.upload: Cannot write into temporary file: " + err.Error())
 		return
 	}
@@ -92,18 +85,17 @@ func uploadHandler(response http.ResponseWriter, request *http.Request) {
 
 	err = helper.CopyFile(temporaryFile.Name(), destinationFileName)
 	if err != nil {
-		http.Error(response, "Cannot write uploaded file into destination: "+err.Error(), http.StatusInternalServerError)
+		context.Error("Cannot write uploaded file into destination: "+err.Error(), fasthttp.StatusInternalServerError)
 		log.Error("Gokaru.upload: Cannot write uploaded file into destination: " + err.Error())
 	} else {
-		response.WriteHeader(http.StatusCreated)
+		context.SetStatusCode(fasthttp.StatusCreated)
 	}
 }
 
-func removeHandler(response http.ResponseWriter, request *http.Request) {
-	params := mux.Vars(request)
-	sourceType := params["sourceType"]
-	fileCategory := params["category"]
-	fileName := params["filename"]
+func removeHandler(context *fasthttp.RequestCtx) {
+	sourceType := context.UserValue("sourceType").(string)
+	fileCategory := context.UserValue("category").(string)
+	fileName := context.UserValue("filename").(string)
 
 	originFileName := storage.GetStorageOriginFilename(sourceType, fileCategory, fileName)
 	defer os.Remove(originFileName)
@@ -114,27 +106,23 @@ func removeHandler(response http.ResponseWriter, request *http.Request) {
 	}
 }
 
-func originHandler(response http.ResponseWriter, request *http.Request) {
-	params := mux.Vars(request)
-
-	sourceType := params["sourceType"]
-	fileCategory := params["category"]
-	fileName := params["filename"]
+func originHandler(context *fasthttp.RequestCtx) {
+	sourceType := context.UserValue("sourceType").(string)
+	fileCategory := context.UserValue("category").(string)
+	fileName := context.UserValue("filename").(string)
 
 	originFileName := storage.GetStorageOriginFilename(sourceType, fileCategory, fileName)
-	http.ServeFile(response, request, originFileName)
+	fasthttp.ServeFile(context, originFileName)
 }
 
-func thumbnailHandler(response http.ResponseWriter, request *http.Request) {
-	params := mux.Vars(request)
-
-	sourceType := params["sourceType"]
-	fileCategory := params["category"]
-	fileName := params["filename"]
-	width := helper.Atoi(params["width"])
-	height := helper.Atoi(params["height"])
-	cast := helper.Atoi(params["cast"])
-	signature := params["signature"]
+func thumbnailHandler(context *fasthttp.RequestCtx) {
+	sourceType := context.UserValue("sourceType").(string)
+	fileCategory := context.UserValue("category").(string)
+	fileName := context.UserValue("filename").(string)
+	width := helper.Atoi(context.UserValue("width").(string))
+	height := helper.Atoi(context.UserValue("height").(string))
+	cast := helper.Atoi(context.UserValue("cast").(string))
+	signature := context.UserValue("signature").(string)
 
 	filenameExtension := strings.ToLower(strings.TrimLeft(filepath.Ext(fileName), "."))
 	filenameWithoutExtension := helper.FileNameWithoutExtension(fileName)
@@ -142,17 +130,17 @@ func thumbnailHandler(response http.ResponseWriter, request *http.Request) {
 	// check signature
 	generatedSignature := security.GenerateSignature(sourceType, fileCategory, fileName, width, height, cast)
 	if signature != generatedSignature {
-		response.WriteHeader(http.StatusForbidden)
+		context.SetStatusCode(fasthttp.StatusForbidden)
 		log.Warn("Gokaru.thumbnail: signature mismatch")
 		return
 	}
 
 	// check for webp acceptance
 	if filenameExtension != "webp" {
-		httpAccept := request.Header.Get("Accept")
+		httpAccept := string(context.Request.Header.Peek("User-Agent"))
 		if strings.Contains(httpAccept, "webp") {
 			filenameExtension = "webp"
-			response.Header().Set("Vary", "Accept")
+			context.Response.Header.Set("Vary", "Accept")
 		}
 	}
 
@@ -163,7 +151,7 @@ func thumbnailHandler(response http.ResponseWriter, request *http.Request) {
 		thumbnailPath := filepath.Dir(thumbnailFileName)
 		err := helper.CreatePathIfNotExists(thumbnailPath)
 		if err != nil {
-			response.WriteHeader(http.StatusInternalServerError)
+			context.SetStatusCode(fasthttp.StatusInternalServerError)
 			log.Error("Gokaru.thumbnail: cannot create thumbnail storage path: " + err.Error())
 			return
 		}
@@ -171,17 +159,17 @@ func thumbnailHandler(response http.ResponseWriter, request *http.Request) {
 		originFileName := storage.GetStorageOriginFilename(sourceType, fileCategory, filenameWithoutExtension)
 		err = thumbnailer.Thumbnail(originFileName, thumbnailFileName, width, height, cast, filenameExtension)
 		if err != nil {
-			response.WriteHeader(http.StatusInternalServerError)
+			context.SetStatusCode(fasthttp.StatusInternalServerError)
 			log.Error("Gokaru.thumbnail: cannot generate thumbnail: " + err.Error())
 			return
 		}
 	} else if err != nil {
 		// An error else than file does not exist
-		response.WriteHeader(http.StatusInternalServerError)
+		context.SetStatusCode(fasthttp.StatusInternalServerError)
 		log.Error("Gokaru.thumbnail: " + err.Error())
 		return
 	}
 
 	// thumbnail exists
-	http.ServeFile(response, request, thumbnailFileName)
+	fasthttp.ServeFile(context, thumbnailFileName)
 }

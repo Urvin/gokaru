@@ -189,4 +189,5 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 
 	// thumbnail exists
 	fasthttp.ServeFile(context, thumbnailFileName)
+	context.Response.Header.Set(fasthttp.HeaderCacheControl, "max-age=2592000") // 30d
 }

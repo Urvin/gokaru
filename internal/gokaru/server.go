@@ -149,10 +149,10 @@ func thumbnailHandler(context *fasthttp.RequestCtx) {
 
 	// check for webp acceptance
 	if filenameExtension != "webp" {
-		httpAccept := string(context.Request.Header.Peek("User-Agent"))
+		httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
 		if strings.Contains(httpAccept, "webp") {
 			filenameExtension = "webp"
-			context.Response.Header.Set("Vary", "Accept")
+			context.Response.Header.Set(fasthttp.HeaderVary, "Accept")
 		}
 	}
 

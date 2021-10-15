@@ -32,12 +32,12 @@ func (s *server) Start() error {
 
 func (s *server) initRouter() {
 	s.router = router.New()
-	s.router.GET("/health", healthHandler)
-	s.router.GET("/favicon.ico", faviconHandler)
-	s.router.PUT("/{sourceType:^image|file$}/{category}/{filename}", uploadHandler)
-	s.router.DELETE("/{sourceType:^image|file$}/{category}/{filename}", removeHandler)
-	s.router.GET("/{sourceType:^image|file$}/{category}/{filename}", originHandler)
-	s.router.GET("/{sourceType:^image|file$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", thumbnailHandler)
+	s.router.GET("/health", s.healthHandler)
+	s.router.GET("/favicon.ico", s.faviconHandler)
+	s.router.PUT("/{sourceType:^image|file$}/{category}/{filename}", s.uploadHandler)
+	s.router.DELETE("/{sourceType:^image|file$}/{category}/{filename}", s.removeHandler)
+	s.router.GET("/{sourceType:^image|file$}/{category}/{filename}", s.originHandler)
+	s.router.GET("/{sourceType:^image|file$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
 }
 
 func (s *server) requestMiddleware(context *fasthttp.RequestCtx) {
@@ -50,16 +50,16 @@ func NewServer() Server {
 	return result
 }
 
-func healthHandler(context *fasthttp.RequestCtx) {
+func (s *server) healthHandler(context *fasthttp.RequestCtx) {
 	context.SetStatusCode(fasthttp.StatusOK)
 	context.WriteString(fasthttp.StatusMessage(fasthttp.StatusOK))
 }
 
-func faviconHandler(context *fasthttp.RequestCtx) {
+func (s *server) faviconHandler(context *fasthttp.RequestCtx) {
 	context.SetStatusCode(fasthttp.StatusOK)
 }
 
-func uploadHandler(context *fasthttp.RequestCtx) {
+func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 	sourceType := context.UserValue("sourceType").(string)
 	fileCategory := context.UserValue("category").(string)
 	fileName := context.UserValue("filename").(string)
@@ -109,7 +109,7 @@ func uploadHandler(context *fasthttp.RequestCtx) {
 	}
 }
 
-func removeHandler(context *fasthttp.RequestCtx) {
+func (s *server) removeHandler(context *fasthttp.RequestCtx) {
 	sourceType := context.UserValue("sourceType").(string)
 	fileCategory := context.UserValue("category").(string)
 	fileName := context.UserValue("filename").(string)
@@ -123,7 +123,7 @@ func removeHandler(context *fasthttp.RequestCtx) {
 	}
 }
 
-func originHandler(context *fasthttp.RequestCtx) {
+func (s *server) originHandler(context *fasthttp.RequestCtx) {
 	sourceType := context.UserValue("sourceType").(string)
 	fileCategory := context.UserValue("category").(string)
 	fileName := context.UserValue("filename").(string)
@@ -132,7 +132,7 @@ func originHandler(context *fasthttp.RequestCtx) {
 	fasthttp.ServeFile(context, originFileName)
 }
 
-func thumbnailHandler(context *fasthttp.RequestCtx) {
+func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 	sourceType := context.UserValue("sourceType").(string)
 	fileCategory := context.UserValue("category").(string)
 	fileName := context.UserValue("filename").(string)

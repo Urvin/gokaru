@@ -27,7 +27,7 @@ type Server interface {
 
 func (s *server) Start() error {
 	s.initRouter()
-	return fasthttp.ListenAndServe(":"+strconv.Itoa(config.Get().Port), s.router.Handler)
+	return fasthttp.ListenAndServe(":"+strconv.Itoa(config.Get().Port), s.requestMiddleware)
 }
 
 func (s *server) initRouter() {
@@ -38,6 +38,11 @@ func (s *server) initRouter() {
 	s.router.DELETE("/{sourceType:^image|file$}/{category}/{filename}", removeHandler)
 	s.router.GET("/{sourceType:^image|file$}/{category}/{filename}", originHandler)
 	s.router.GET("/{sourceType:^image|file$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", thumbnailHandler)
+}
+
+func (s *server) requestMiddleware(context *fasthttp.RequestCtx) {
+	s.router.Handler(context)
+	context.Response.Header.Set(fasthttp.HeaderServer, "Gokaru")
 }
 
 func NewServer() Server {

@@ -4,6 +4,9 @@ port: 8101
 # Secret signature salt
 signature_salt: 'secret'
 
+# Signature algorithm, use md5 or murmur
+signature_algorithm: 'murmur'
+
 # padding value for add padding cast
 padding: 10
 

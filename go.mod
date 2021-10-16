@@ -9,6 +9,7 @@ require (
 	github.com/klauspost/compress v1.13.4 // indirect
 	github.com/savsgio/gotils v0.0.0-20210907153846-c06938798b52 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
+	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.30.0 // indirect
 	golang.org/x/sys v0.0.0-20210514084401-e8d321eab015 // indirect

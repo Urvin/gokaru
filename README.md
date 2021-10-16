@@ -100,25 +100,65 @@ output would be also animated. Also, Gokaru sends WEBP format to browser accepti
 
 **Calculate security signature**
 
-Secret salt is set in config.yml file Signature is a md5 hash of concatenated stings of salt, width, height, cast,
-category and filename without extension
+Use md5 or murmur signature, according to config.yml.
+Both signature algorithms use your own salt, described in config.yml.
+
+***MD5 algorithm***
+
+Signature is a md5 hash of concatenated stings of salt, width, height, cast, category and filename without extension
 
 ```bash
-# salt = secretsalt
+**_# salt = secretsalt
 # source_type = image
 # category = example
-#filename = your_first_image.jpg
+# filename = your_first_image.jpg
 # with = 100
 # height = 200
-# cast = 8
+# cast = 8_**
 echo -n secretsalt/image/example/your_first_image.jpg/100/200/8 | md5sum
 ```
 
+***MurMur3 algorithm***
+
+Signature is a MurMur3 32-based hash in of concatenated stings of salt, width, height, cast, category and filename without extension
+MumMur3 is shorter than MD5, that is better for URLs, and is a default Gokaru signature algorithm
+
+```php
+<?php
+    // composer require lastguest/murmurhash
+    use lastguest\Murmur;
+
+    $salt = 'secretsalt';
+    $sourceType = 'image';
+    $category = 'example';
+    $fileName = 'your_first_image.jpg';
+    $with = 100;
+    $height = 200;
+    $cast = 8;
+
+
+    echo Murmur::hash3(
+        $salt . '/' .
+        $sourceType . '/' .
+        $category . '/' .
+        $fileName . '/' .
+        (string)$with . '/' .
+        (string)$height . '/' .
+        (string)$cast
+    );
+```
+
 **Combine parts of your URL**
+
 Request /source_type/signature/category/width/height/cast/filename.extension one
 
 ```bash
+#md5
 wget http://localhost:8101/image/3ac8ee6f420b812ec95176bbb54d7653/example/100/200/8/your_first_image.jpg
+```
+```bash
+#murmur
+wget http://localhost:8101/image/1d7ulp9/example/100/200/8/your_first_image.jpg
 ```
 
 ### Cast flags

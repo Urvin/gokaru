@@ -18,14 +18,12 @@ import (
 )
 
 type server struct {
-	router *router.Router
-}
-
-type Server interface {
-	Start() error
+	router             *router.Router
+	signatureGenerator security.SignatureGenerator
 }
 
 func (s *server) Start() error {
+	s.initSignatureGenerator()
 	s.initRouter()
 	return fasthttp.ListenAndServe(":"+strconv.Itoa(config.Get().Port), s.requestMiddleware)
 }
@@ -37,7 +35,16 @@ func (s *server) initRouter() {
 	s.router.PUT("/{sourceType:^image|file$}/{category}/{filename}", s.uploadHandler)
 	s.router.DELETE("/{sourceType:^image|file$}/{category}/{filename}", s.removeHandler)
 	s.router.GET("/{sourceType:^image|file$}/{category}/{filename}", s.originHandler)
-	s.router.GET("/{sourceType:^image|file$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
+	s.router.GET("/{sourceType:^image$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
+}
+
+func (s *server) initSignatureGenerator() {
+	if config.Get().SignatureAlgorithm == "md5" {
+		s.signatureGenerator = security.NewMd5SignatureGenerator()
+	} else {
+		s.signatureGenerator = security.NewMurmurSignatureGenerator()
+	}
+	s.signatureGenerator.SetSalt(config.Get().SignatureSalt)
 }
 
 func (s *server) requestMiddleware(context *fasthttp.RequestCtx) {
@@ -145,7 +152,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 	filenameWithoutExtension := helper.FileNameWithoutExtension(fileName)
 
 	// check signature
-	generatedSignature := security.GenerateSignature(sourceType, fileCategory, fileName, width, height, cast)
+	generatedSignature := s.signatureGenerator.Sign(sourceType, fileCategory, fileName, width, height, cast)
 	if signature != generatedSignature {
 		context.SetStatusCode(fasthttp.StatusForbidden)
 		log.Warn("Gokaru.thumbnail: signature mismatch")

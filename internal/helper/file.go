@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 )
 
 // CopyFile copies a file from src to dst. If src and dst files exist, and are
@@ -70,27 +69,6 @@ func copyFileContents(src, dst string) (err error) {
 	return
 }
 
-func RemoveByWildcard(wildcard string) (err error) {
-	files, er := filepath.Glob(wildcard)
-	if er != nil {
-		err = er
-		return
-	}
-	for _, f := range files {
-		if er := os.Remove(f); er != nil {
-			err = er
-			return
-		}
-	}
-	return
-}
-
-func CreatePathIfNotExists(path string) (err error) {
-	if _, er := os.Stat(path); os.IsNotExist(er) {
-		err = os.MkdirAll(path, os.ModePerm)
-	}
-	return
-}
 func Exec(name string, arg ...string) (output string, err error) {
 	cmd := exec.Command(name, arg...)
 	var stdout, stderr bytes.Buffer

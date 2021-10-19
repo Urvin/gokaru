@@ -1,12 +1,13 @@
 package thumbnailer
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"github.com/urvin/gokaru/internal/config"
 	"github.com/urvin/gokaru/internal/helper"
 	"gopkg.in/alessio/shellescape.v1"
+	"io"
 	"io/ioutil"
 	"math"
 	"os"
@@ -14,8 +15,42 @@ import (
 	"strings"
 )
 
-func Thumbnail(origin, destination string, width, height, cast int, extension string) (err error) {
-	err = validate(width, height, cast, extension)
+type thumbnailer struct {
+}
+
+func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, extension string) (thumbnail io.Reader, err error) {
+	originFile, err := ioutil.TempFile("", "thumbnail")
+	if err != nil {
+		return
+	}
+	defer func(originFile *os.File) {
+		_ = originFile.Close()
+	}(originFile)
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(originFile.Name())
+
+	_, err = io.Copy(originFile, origin)
+	if err != nil {
+		return
+	}
+
+	destinationFile, err := ioutil.TempFile("", "thumbnail")
+	if err != nil {
+		return
+	}
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(originFile.Name())
+
+	err = t.thumbnailFiles(originFile.Name(), destinationFile.Name(), width, height, cast, extension)
+	thumbnail = bufio.NewReader(destinationFile)
+
+	return
+}
+
+func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, cast int, extension string) (err error) {
+	err = t.validateParams(width, height, cast, extension)
 	if err != nil {
 		return
 	}
@@ -35,10 +70,10 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 
 	// Set transparent background
 	if !info.Alpha &&
-		hasCast(CAST_TRANSPARENT_BACKGROUND, cast) &&
-		!hasCast(CAST_TRANSPARENT_BACKGROUND, cast) &&
+		t.hasCast(CAST_TRANSPARENT_BACKGROUND, cast) &&
+		!t.hasCast(CAST_OPAQUE_BACKGROUND, cast) &&
 		!destinationIsOpaque {
-		firstPixelColor, er := getFirstPixelColor(origin)
+		firstPixelColor, er := t.getFirstPixelColor(origin)
 		if er != nil {
 			err = er
 			return
@@ -49,13 +84,13 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 	}
 
 	// Set opaque background
-	if hasCast(CAST_OPAQUE_BACKGROUND, cast) || (info.Alpha && destinationIsOpaque) {
+	if t.hasCast(CAST_OPAQUE_BACKGROUND, cast) || (info.Alpha && destinationIsOpaque) {
 		imagickParams = append(imagickParams, "-background", "white", "-alpha", "remove", "-alpha", "off", "-fuzz", "5%", "-fill", "white", "-draw", "color 1,1 floodfill")
 		opaqueBackgroundSet = true
 	}
 
 	// trim image
-	if hasCast(CAST_TRIM, cast) {
+	if t.hasCast(CAST_TRIM, cast) {
 		imagickParams = append(imagickParams, "-fuzz", "5%", "-trim")
 		trimmed = true
 	}
@@ -72,11 +107,11 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 	} else if height == 0 {
 		resizeFlag = "!"
 		height = int(math.Floor(float64(info.Height) * float64(width) / float64(info.Width)))
-	} else if hasCast(CAST_RESIZE_TENSILE, cast) {
+	} else if t.hasCast(CAST_RESIZE_TENSILE, cast) {
 		resizeFlag = "!"
-	} else if hasCast(CAST_RESIZE_PRECISE, cast) {
+	} else if t.hasCast(CAST_RESIZE_PRECISE, cast) {
 		resizeFlag = "^"
-	} else if hasCast(CAST_RESIZE_INVERSE, cast) {
+	} else if t.hasCast(CAST_RESIZE_INVERSE, cast) {
 		resizeFlag = ""
 	} else {
 		forceExtent = true
@@ -85,8 +120,8 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 	resizeWidth := width
 	resizeHeight := height
 	padding := config.Get().Padding
-	if hasCast(CAST_TRIM_PADDING, cast) &&
-		hasCast(CAST_TRIM, cast) &&
+	if t.hasCast(CAST_TRIM_PADDING, cast) &&
+		t.hasCast(CAST_TRIM, cast) &&
 		resizeWidth > 2*padding &&
 		resizeHeight > 2*padding {
 		resizeWidth -= 2 * padding
@@ -99,14 +134,14 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 	}
 
 	// extent
-	if forceExtent || hasCast(CAST_EXTENT, cast) {
+	if forceExtent || t.hasCast(CAST_EXTENT, cast) {
 		if !opaqueBackgroundSet {
 			imagickParams = append(imagickParams, "-background", "none")
 		}
 		imagickParams = append(imagickParams, "-gravity", "center", "-extent", strconv.Itoa(width)+"x"+strconv.Itoa(height))
 	}
 
-	quality := getQuality(width, height, extension)
+	quality := t.getQuality(width, height, extension)
 	saveQuality := quality
 	if saveQuality > 100 {
 		saveQuality = 100
@@ -123,21 +158,23 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 				err = er
 				return
 			}
-			defer os.Remove(paletteFile.Name())
+			defer func(name string) {
+				_ = os.Remove(name)
+			}(paletteFile.Name())
 
-			err = execMagick(origin, FORMAT_GIF+":"+paletteFile.Name(), paletteParams)
+			err = t.execMagick(origin, FORMAT_GIF+":"+paletteFile.Name(), paletteParams)
 			if err != nil {
 				return
 			}
 
 			imagickParams = append(imagickParams, "+dither", "-remap", paletteFile.Name(), "-layers", "optimize")
-			err = execMagick(origin, destination, imagickParams)
+			err = t.execMagick(origin, destination, imagickParams)
 			if err != nil {
 				return
 			}
 		} else {
 			imagickParams = append(imagickParams, "-layers", "optimize", "-quality", strconv.Itoa(saveQuality))
-			err = execMagick(origin, destination, imagickParams)
+			err = t.execMagick(origin, destination, imagickParams)
 		}
 	} else {
 		if info.Animated {
@@ -151,9 +188,11 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 				err = er
 				return
 			}
-			defer os.Remove(destinationTempFile.Name())
+			defer func(name string) {
+				_ = os.Remove(name)
+			}(destinationTempFile.Name())
 
-			err = execMagick(origin, FORMAT_PNG+":"+destinationTempFile.Name(), append(imagickParams, "-quality", "100"))
+			err = t.execMagick(origin, FORMAT_PNG+":"+destinationTempFile.Name(), append(imagickParams, "-quality", "100"))
 			if err != nil {
 				return err
 			}
@@ -164,7 +203,7 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 			}
 
 		} else {
-			err = execMagick(origin, destination, append(imagickParams, "-quality", strconv.Itoa(saveQuality)))
+			err = t.execMagick(origin, destination, append(imagickParams, "-quality", strconv.Itoa(saveQuality)))
 			if err != nil {
 				return err
 			}
@@ -176,22 +215,23 @@ func Thumbnail(origin, destination string, width, height, cast int, extension st
 					return
 				}
 
-				// maximum later
-				go func() {
-					log.Info("Thubmnailer: zopfli started")
-					_, er := helper.Exec("zopflipng", "-m", "--iterations="+strconv.Itoa(quality), "-y", "--lossy_transparent", destination, destination)
-					if er != nil {
-						log.Warn("Thubmnailer: zopfli error:" + er.Error())
-					}
-					log.Info("Thubmnailer: zopfli ended")
-				}()
+				//// maximum later
+				//go func() {
+				//	log.Info("Thubmnailer: zopfli started")
+				//	_, er := helper.Exec("zopflipng", "-m", "--iterations="+strconv.Itoa(quality), "-y", "--lossy_transparent", destination, destination)
+				//	if er != nil {
+				//		log.Warn("Thubmnailer: zopfli error:" + er.Error())
+				//	}
+				//	log.Info("Thubmnailer: zopfli ended")
+				//}()
 			}
 		}
 	}
+
 	return
 }
 
-func validate(width, height, cast int, extension string) (err error) {
+func (t *thumbnailer) validateParams(width, height, cast int, extension string) (err error) {
 	if width < 0 {
 		err = errors.New("width should not be less than 0")
 		return
@@ -210,11 +250,11 @@ func validate(width, height, cast int, extension string) (err error) {
 	return
 }
 
-func hasCast(needle int, haystack int) bool {
+func (t *thumbnailer) hasCast(needle int, haystack int) bool {
 	return (haystack & needle) > 0
 }
 
-func getFirstPixelColor(fileName string) (color string, err error) {
+func (t *thumbnailer) getFirstPixelColor(fileName string) (color string, err error) {
 
 	output, er := helper.Exec("convert", fileName, "-format", "%[pixel:p{0,0}]", "info:-")
 	if er != nil {
@@ -225,7 +265,7 @@ func getFirstPixelColor(fileName string) (color string, err error) {
 	return
 }
 
-func getQuality(width, height int, format string) int {
+func (t *thumbnailer) getQuality(width, height int, format string) int {
 	quality := config.Get().QualityDefault
 
 	halfPerimeter := width + height
@@ -243,16 +283,19 @@ func getQuality(width, height int, format string) int {
 		}
 	}
 
-	log.Info("Thubmnailer: halfperimeter " + strconv.Itoa(halfPerimeter) + " format " + format + " quality " + strconv.Itoa(quality))
-
 	return quality
 }
 
-func execMagick(origin, destination string, params []string) (err error) {
+func (t *thumbnailer) execMagick(origin, destination string, params []string) (err error) {
 	params = append([]string{origin}, append(params, destination)...)
 	_, err = helper.Exec("convert", params...)
 	if err != nil {
 		return
 	}
 	return
+}
+
+func NewThumbnailer() Thumbnailer {
+	result := &thumbnailer{}
+	return result
 }

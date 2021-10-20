@@ -3,6 +3,7 @@ package security
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"github.com/urvin/gokaru/internal/contracts"
 	"strconv"
 )
 
@@ -14,15 +15,15 @@ func (sg *md5SignatureGenerator) SetSalt(salt string) {
 	sg.salt = salt
 }
 
-func (sg *md5SignatureGenerator) Sign(sourceType, fileCategory, fileName string, width, height, cast int) string {
+func (sg *md5SignatureGenerator) Sign(miniature *contracts.Miniature) string {
 	hash := md5.Sum([]byte(
 		sg.salt + "/" +
-			sourceType + "/" +
-			fileCategory + "/" +
-			fileName + "/" +
-			strconv.Itoa(width) + "/" +
-			strconv.Itoa(height) + "/" +
-			strconv.Itoa(cast),
+			miniature.Type + "/" +
+			miniature.Category + "/" +
+			miniature.Name + "/" +
+			strconv.Itoa(miniature.Width) + "/" +
+			strconv.Itoa(miniature.Height) + "/" +
+			strconv.Itoa(miniature.Cast),
 	))
 	return hex.EncodeToString(hash[:])
 }

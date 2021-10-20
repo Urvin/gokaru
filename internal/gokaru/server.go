@@ -2,9 +2,11 @@ package gokaru
 
 import (
 	"bytes"
+	"errors"
 	"github.com/fasthttp/router"
 	log "github.com/sirupsen/logrus"
 	"github.com/urvin/gokaru/internal/config"
+	"github.com/urvin/gokaru/internal/contracts"
 	"github.com/urvin/gokaru/internal/helper"
 	"github.com/urvin/gokaru/internal/security"
 	"github.com/urvin/gokaru/internal/storage"
@@ -37,10 +39,17 @@ func (s *server) initRouter() {
 	s.router = router.New()
 	s.router.GET("/health", s.healthHandler)
 	s.router.GET("/favicon.ico", s.faviconHandler)
-	s.router.PUT("/{sourceType:^image|file$}/{category}/{filename}", s.uploadHandler)
-	s.router.DELETE("/{sourceType:^image|file$}/{category}/{filename}", s.removeHandler)
-	s.router.GET("/{sourceType:^image|file$}/{category}/{filename}", s.originHandler)
-	s.router.GET("/{sourceType:^image$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
+
+	// files can contain dots in filename
+	s.router.PUT("/{sourceType:^"+contracts.TYPE_FILE+"$}/{category}/{filename}", s.uploadHandler)
+	s.router.DELETE("/{sourceType:^"+contracts.TYPE_FILE+"$}/{category}/{filename}", s.removeHandler)
+	s.router.GET("/{sourceType:^"+contracts.TYPE_FILE+"$}/{category}/{filename}", s.originHandler)
+
+	// images cannot contain dots in filename
+	s.router.PUT("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename:^[^\\.]+$}", s.uploadHandler)
+	s.router.DELETE("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename^[^\\.]+$}", s.removeHandler)
+	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename^[^\\.]+$}", s.originHandler)
+	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
 }
 
 func (s *server) initSignatureGenerator() {
@@ -61,11 +70,6 @@ func (s *server) requestMiddleware(context *fasthttp.RequestCtx) {
 	context.Response.Header.Set(fasthttp.HeaderServer, "Gokaru")
 }
 
-func NewServer() Server {
-	result := &server{}
-	return result
-}
-
 func (s *server) healthHandler(context *fasthttp.RequestCtx) {
 	context.SetStatusCode(fasthttp.StatusOK)
 	_, err := context.WriteString(fasthttp.StatusMessage(fasthttp.StatusOK))
@@ -75,18 +79,21 @@ func (s *server) healthHandler(context *fasthttp.RequestCtx) {
 }
 
 func (s *server) faviconHandler(context *fasthttp.RequestCtx) {
-	fasthttp.ServeFile(context, "./favicon.ico")
+	fasthttp.ServeFile(context, "./assets/favicon.ico")
 	context.SetStatusCode(fasthttp.StatusOK)
 }
 
 func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
-	sourceType := context.UserValue("sourceType").(string)
-	fileCategory := context.UserValue("category").(string)
-	fileName := context.UserValue("filename").(string)
+	origin, err := s.getOriginInfoFromContext(context)
+	if err != nil {
+		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		log.Error("[server][upload] Invalid input data: " + err.Error())
+		return
+	}
 
 	uploadedData := context.Request.Body()
 
-	if sourceType == "image" {
+	if origin.Type == contracts.TYPE_IMAGE {
 		contentType := http.DetectContentType(uploadedData)
 
 		if contentType != "image/bmp" &&
@@ -101,7 +108,7 @@ func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 	}
 
 	uploadDataReader := bytes.NewReader(uploadedData)
-	err := s.storage.Write(sourceType, fileCategory, fileName, uploadDataReader)
+	err = s.storage.Write(origin, uploadDataReader)
 	if err != nil {
 		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
 		log.Error("[server][upload] Could not upload file: " + err.Error())
@@ -112,20 +119,26 @@ func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 }
 
 func (s *server) removeHandler(context *fasthttp.RequestCtx) {
-	sourceType := context.UserValue("sourceType").(string)
-	fileCategory := context.UserValue("category").(string)
-	fileName := context.UserValue("filename").(string)
+	origin, err := s.getOriginInfoFromContext(context)
+	if err != nil {
+		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		log.Error("[server][remove] Invalid input data: " + err.Error())
+		return
+	}
 
-	_ = s.storage.Remove(sourceType, fileCategory, fileName)
+	_ = s.storage.Remove(origin)
 	context.SetStatusCode(fasthttp.StatusOK)
 }
 
 func (s *server) originHandler(context *fasthttp.RequestCtx) {
-	sourceType := context.UserValue("sourceType").(string)
-	fileCategory := context.UserValue("category").(string)
-	fileName := context.UserValue("filename").(string)
+	origin, err := s.getOriginInfoFromContext(context)
+	if err != nil {
+		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		log.Error("[server][origin] Invalid input data: " + err.Error())
+		return
+	}
 
-	info, err := s.storage.Read(sourceType, fileCategory, fileName)
+	info, err := s.storage.Read(origin)
 	if err != nil {
 		context.Error("Could not read origin", fasthttp.StatusInternalServerError)
 		log.Error("[server][origin] Could not read origin file: " + err.Error())
@@ -135,23 +148,25 @@ func (s *server) originHandler(context *fasthttp.RequestCtx) {
 }
 
 func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
-	sourceType := context.UserValue("sourceType").(string)
-	fileCategory := context.UserValue("category").(string)
-	fileName := context.UserValue("filename").(string)
-	width := helper.Atoi(context.UserValue("width").(string))
-	height := helper.Atoi(context.UserValue("height").(string))
-	cast := helper.Atoi(context.UserValue("cast").(string))
+	miniature, err := s.getMiniatureInfoFromContext(context)
+	if err != nil {
+		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		log.Error("[server][thumbnail] Invalid input data: " + err.Error())
+		return
+	}
 	signature := context.UserValue("signature").(string)
 
 	// check signature
-	generatedSignature := s.signatureGenerator.Sign(sourceType, fileCategory, fileName, width, height, cast)
+	generatedSignature := s.signatureGenerator.Sign(miniature)
 	if signature != generatedSignature {
 		context.SetStatusCode(fasthttp.StatusForbidden)
 		log.Warn("[server][thumbnail] Signature mismatch")
 		return
 	}
 
-	thumbnailFileExtension := strings.ToLower(strings.TrimLeft(filepath.Ext(fileName), "."))
+	thumbnailFileExtension := strings.ToLower(strings.TrimLeft(filepath.Ext(miniature.Name), "."))
+	filenameWithoutExtension := helper.FileNameWithoutExtension(miniature.Name)
+	miniature.Name = filenameWithoutExtension
 
 	// check for webp acceptance
 	if thumbnailFileExtension != "webp" {
@@ -162,9 +177,13 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 	}
 
-	if !s.storage.ThumbnailExists(sourceType, fileCategory, fileName, width, height, cast, thumbnailFileExtension) {
-		filenameWithoutExtension := helper.FileNameWithoutExtension(fileName)
-		originInfo, err := s.storage.Read(sourceType, fileCategory, filenameWithoutExtension)
+	if !s.storage.ThumbnailExists(miniature, thumbnailFileExtension) {
+		origin := contracts.Origin{
+			Type:     miniature.Type,
+			Category: miniature.Category,
+			Name:     miniature.Name,
+		}
+		originInfo, err := s.storage.Read(&origin)
 		if err != nil {
 			context.Error("Could not read origin", fasthttp.StatusInternalServerError)
 			log.Error("[server][thumbnail] Could not read origin: " + err.Error())
@@ -172,14 +191,14 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 
 		thmbnlr := thumbnailer.NewThumbnailer()
-		thumbnailData, err := thmbnlr.Thumbnail(originInfo.Reader, width, height, cast, thumbnailFileExtension)
+		thumbnailData, err := thmbnlr.Thumbnail(originInfo.Reader, miniature.Width, miniature.Height, miniature.Cast, thumbnailFileExtension)
 		if err != nil {
 			context.Error("Could not read origin", fasthttp.StatusInternalServerError)
 			log.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
 			return
 		}
 
-		err = s.storage.WriteThumbnail(sourceType, fileCategory, fileName, width, height, cast, thumbnailFileExtension, thumbnailData)
+		err = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, thumbnailData)
 		if err != nil {
 			context.Error("Could not save thumbnail", fasthttp.StatusInternalServerError)
 			log.Error("[server][thumbnail] Could not save thumbnail: " + err.Error())
@@ -187,7 +206,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 	}
 
-	info, err := s.storage.ReadThumbnail(sourceType, fileCategory, fileName, width, height, cast, thumbnailFileExtension)
+	info, err := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
 	if err != nil {
 		context.Error("Could not read thumbnail", fasthttp.StatusInternalServerError)
 		log.Error("[server][thumbnail] Could not read thumbnail file: " + err.Error())
@@ -197,7 +216,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 	s.serveFile(context, info)
 }
 
-func (s *server) serveFile(context *fasthttp.RequestCtx, info storage.FileInfo) {
+func (s *server) serveFile(context *fasthttp.RequestCtx, info contracts.File) {
 
 	if !context.IfModifiedSince(info.ModificationTime) {
 		context.NotModified()
@@ -218,4 +237,57 @@ func (s *server) serveFile(context *fasthttp.RequestCtx, info storage.FileInfo) 
 
 	context.SetStatusCode(fasthttp.StatusOK)
 	context.Response.Header.Set(fasthttp.HeaderCacheControl, "max-age=2592000") // 30d
+}
+
+func (s *server) getOriginInfoFromContext(context *fasthttp.RequestCtx) (origin *contracts.Origin, err error) {
+	origin = &contracts.Origin{
+		Type:     context.UserValue("sourceType").(string),
+		Category: context.UserValue("category").(string),
+		Name:     context.UserValue("filename").(string),
+	}
+	if len(origin.Type) == 0 {
+		err = errors.New("type is empty")
+	}
+	if len(origin.Category) == 0 {
+		err = errors.New("category is empty")
+	}
+	if len(origin.Name) == 0 {
+		err = errors.New("name is empty")
+	}
+	return
+}
+
+func (s *server) getMiniatureInfoFromContext(context *fasthttp.RequestCtx) (miniature *contracts.Miniature, err error) {
+	miniature = &contracts.Miniature{
+		Type:     context.UserValue("sourceType").(string),
+		Category: context.UserValue("category").(string),
+		Name:     context.UserValue("filename").(string),
+		Width:    helper.Atoi(context.UserValue("width").(string)),
+		Height:   helper.Atoi(context.UserValue("height").(string)),
+		Cast:     helper.Atoi(context.UserValue("cast").(string)),
+	}
+	if len(miniature.Type) == 0 {
+		err = errors.New("type is empty")
+	}
+	if len(miniature.Category) == 0 {
+		err = errors.New("category is empty")
+	}
+	if len(miniature.Name) == 0 {
+		err = errors.New("name is empty")
+	}
+	if miniature.Width < 0 {
+		err = errors.New("width should not be less tan 0")
+	}
+	if miniature.Height < 0 {
+		err = errors.New("height should not be less tan 0")
+	}
+	if miniature.Cast < 0 {
+		err = errors.New("cast should not be less tan 0")
+	}
+	return
+}
+
+func NewServer() Server {
+	result := &server{}
+	return result
 }

@@ -2,6 +2,7 @@ package security
 
 import (
 	"github.com/spaolacci/murmur3"
+	"github.com/urvin/gokaru/internal/contracts"
 	"strconv"
 )
 
@@ -13,16 +14,16 @@ func (sg *murmurSignatureGenerator) SetSalt(salt string) {
 	sg.salt = salt
 }
 
-func (sg *murmurSignatureGenerator) Sign(sourceType, fileCategory, fileName string, width, height, cast int) string {
+func (sg *murmurSignatureGenerator) Sign(miniature *contracts.Miniature) string {
 	hash := murmur3.New32()
 	_, err := hash.Write([]byte(
 		sg.salt + "/" +
-			sourceType + "/" +
-			fileCategory + "/" +
-			fileName + "/" +
-			strconv.Itoa(width) + "/" +
-			strconv.Itoa(height) + "/" +
-			strconv.Itoa(cast),
+			miniature.Type + "/" +
+			miniature.Category + "/" +
+			miniature.Name + "/" +
+			strconv.Itoa(miniature.Width) + "/" +
+			strconv.Itoa(miniature.Height) + "/" +
+			strconv.Itoa(miniature.Cast),
 	))
 	if err != nil {
 		return ""

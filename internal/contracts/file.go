@@ -1,11 +1,11 @@
-package storage
+package contracts
 
 import (
 	"io"
 	"time"
 )
 
-type FileInfo struct {
+type File struct {
 	Size             int64
 	ModificationTime time.Time
 	ContentType      string

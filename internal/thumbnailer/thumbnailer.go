@@ -145,10 +145,6 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 	}
 
 	quality := t.getQuality(width, height, extension)
-	saveQuality := quality
-	if saveQuality > 100 {
-		saveQuality = 100
-	}
 
 	// Animated image
 	if info.Animated && helper.StringInSlice(extension, FORMATS_ANIMATED) {
@@ -176,7 +172,7 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 				return
 			}
 		} else {
-			imagickParams = append(imagickParams, "-layers", "optimize", "-quality", strconv.Itoa(saveQuality))
+			imagickParams = append(imagickParams, "-layers", "optimize", "-quality", strconv.Itoa(quality.Quality))
 			err = t.execMagick(origin, destination, imagickParams)
 		}
 	} else {
@@ -186,7 +182,7 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 		}
 
 		if extension == FORMAT_JPG {
-			destinationTempFile, er := ioutil.TempFile("", "saveproxy")
+			destinationTempFile, er := ioutil.TempFile("", "thumbnail-jp")
 			if er != nil {
 				err = er
 				return
@@ -200,24 +196,22 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 				return
 			}
 
-			_, err = helper.Exec("sh", "-c", "mozjpeg -optimize -progressive -quality "+strconv.Itoa(saveQuality)+" "+shellescape.Quote(destinationTempFile.Name())+" > "+shellescape.Quote(destination))
+			_, err = helper.Exec("sh", "-c", "mozjpeg -optimize -progressive -quality "+strconv.Itoa(quality.Quality)+" "+shellescape.Quote(destinationTempFile.Name())+" > "+shellescape.Quote(destination))
 			if err != nil {
 				return
 			}
 
 		} else {
-			err = t.execMagick(origin, destination, append(imagickParams, "-quality", strconv.Itoa(saveQuality)))
+			err = t.execMagick(origin, destination, append(imagickParams, "-quality", strconv.Itoa(quality.Quality)))
 			if err != nil {
 				return
 			}
 
 			if extension == FORMAT_PNG {
-				// minimal compression now
-				_, err = helper.Exec("optipng", destination)
+				_, err = helper.Exec("pngquant", "--force", "--quality="+strconv.Itoa(quality.QualityMin)+"-"+strconv.Itoa(quality.Quality), "--strip", "--skip-if-larger", "--speed", "1", "--ext", ".png", "--verbose", "--", destination)
 				if err != nil {
 					return
 				}
-
 				later = t.laterOptimizePng
 			}
 		}
@@ -249,7 +243,7 @@ func (t *thumbnailer) laterOptimizePng(uncompressed io.Reader) (compressed io.Re
 
 	quality := t.getQuality(info.Width, info.Height, info.Format)
 
-	_, err = helper.Exec("zopflipng", "--iterations="+strconv.Itoa(quality), "-y", "--filters=01234mepb", "--lossy_8bit", "--lossy_transparent", uncompressedFile.Name(), compressedFile.Name())
+	_, err = helper.Exec("zopflipng", "--iterations="+strconv.Itoa(quality.Iterations), "-y", "--filters=01234mepb", "--lossy_8bit", "--lossy_transparent", uncompressedFile.Name(), compressedFile.Name())
 	if err != nil {
 		return
 	}
@@ -292,17 +286,27 @@ func (t *thumbnailer) getFirstPixelColor(fileName string) (color string, err err
 	return
 }
 
-func (t *thumbnailer) getQuality(width, height int, format string) int {
-	quality := config.Get().QualityDefault
+func (t *thumbnailer) getQuality(width, height int, format string) Quality {
+	defaultQuality := Quality{
+		Quality:    config.Get().QualityDefault,
+		QualityMin: config.Get().QualityDefault,
+		Iterations: 100,
+	}
 
+	result := defaultQuality
 	halfPerimeter := width + height
 
 	for _, qualityFormat := range config.Get().Quality {
 		if qualityFormat.Format == format {
-			quality = qualityFormat.Quality
+			result.Quality = qualityFormat.Quality
+			result.QualityMin = qualityFormat.QualityMin
+			result.Iterations = qualityFormat.Iterations
+
 			for _, condition := range qualityFormat.Conditions {
 				if halfPerimeter >= condition.From && halfPerimeter < condition.To {
-					quality = condition.Quality
+					result.Quality = condition.Quality
+					result.QualityMin = condition.QualityMin
+					result.Iterations = condition.Iterations
 					break
 				}
 			}
@@ -310,7 +314,26 @@ func (t *thumbnailer) getQuality(width, height int, format string) int {
 		}
 	}
 
-	return quality
+	if result.Quality <= 0 {
+		result = defaultQuality
+	}
+	if result.Quality > 100 {
+		result.Quality = 100
+	}
+	if result.QualityMin <= 0 {
+		result.QualityMin = result.Quality
+	}
+	if result.QualityMin > 100 {
+		result.QualityMin = 100
+	}
+	if result.QualityMin > result.Quality {
+		result.QualityMin = result.Quality
+	}
+	if result.Iterations <= 0 {
+		result.Iterations = 100
+	}
+
+	return result
 }
 
 func (t *thumbnailer) execMagick(origin, destination string, params []string) (err error) {

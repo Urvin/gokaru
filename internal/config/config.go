@@ -10,10 +10,14 @@ type Config struct {
 	Quality            []struct {
 		Format     string `yaml:"format"`
 		Quality    int    `yaml:"quality"`
+		QualityMin int    `yaml:"quality_min" default:"0"`
+		Iterations int    `yaml:"iterations"  default:"100"`
 		Conditions []struct {
-			From    int `yaml:"from"`
-			To      int `yaml:"to"`
-			Quality int `yaml:"quality"`
+			From       int `yaml:"from"`
+			To         int `yaml:"to"`
+			Quality    int `yaml:"quality"`
+			QualityMin int `yaml:"quality_min" default:"0"`
+			Iterations int `yaml:"iterations"  default:"100"`
 		}
 	} `yaml:"quality"`
 }

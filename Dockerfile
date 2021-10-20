@@ -3,7 +3,7 @@ FROM golang:${GOLANG_VERSION}-alpine
 LABEL maintainer="Yuriy Gorbachev <yuriy@gorbachev.rocks>"
 
 RUN apk update && apk upgrade
-RUN apk add imagemagick libwebp libwebp-tools optipng
+RUN apk add imagemagick libwebp libwebp-tools pngquant
 
 ARG MOZJPEG_VERSION=4.0.3
 RUN set -x -o pipefail \

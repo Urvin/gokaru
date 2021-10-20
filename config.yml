@@ -34,4 +34,12 @@ quality:
         to: 1800
         quality: 85
   - format: png
-    quality: 500 # number of zopfli runs
+    quality: 100 #pngquant maximum quality
+    quality_min: 40 #pngquant minimum quality
+    iterations: 200 #zopfli iterations
+    conditions:
+      - from: 0
+        to: 500
+        quality: 100
+        quality_min: 40
+        iterations: 500

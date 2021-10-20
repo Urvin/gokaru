@@ -18,8 +18,8 @@ import (
 type thumbnailer struct {
 }
 
-func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, extension string) (thumbnail io.Reader, err error) {
-	originFile, err := ioutil.TempFile("", "thumbnail")
+func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, extension string) (thumbnail io.Reader, later func(io.Reader) (io.Reader, error), err error) {
+	originFile, err := ioutil.TempFile("", "thumbnail-or")
 	if err != nil {
 		return
 	}
@@ -35,7 +35,7 @@ func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, exten
 		return
 	}
 
-	destinationFile, err := ioutil.TempFile("", "thumbnail")
+	destinationFile, err := ioutil.TempFile("", "thumbnail-dst.*."+extension)
 	if err != nil {
 		return
 	}
@@ -43,13 +43,16 @@ func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, exten
 		_ = os.Remove(name)
 	}(originFile.Name())
 
-	err = t.thumbnailFiles(originFile.Name(), destinationFile.Name(), width, height, cast, extension)
-	thumbnail = bufio.NewReader(destinationFile)
+	later, err = t.thumbnailFiles(originFile.Name(), destinationFile.Name(), width, height, cast, extension)
+	if err != nil {
+		return
+	}
 
+	thumbnail = bufio.NewReader(destinationFile)
 	return
 }
 
-func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, cast int, extension string) (err error) {
+func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, cast int, extension string) (later func(io.Reader) (io.Reader, error), err error) {
 	err = t.validateParams(width, height, cast, extension)
 	if err != nil {
 		return
@@ -194,7 +197,7 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 
 			err = t.execMagick(origin, FORMAT_PNG+":"+destinationTempFile.Name(), append(imagickParams, "-quality", "100"))
 			if err != nil {
-				return err
+				return
 			}
 
 			_, err = helper.Exec("sh", "-c", "mozjpeg -optimize -progressive -quality "+strconv.Itoa(saveQuality)+" "+shellescape.Quote(destinationTempFile.Name())+" > "+shellescape.Quote(destination))
@@ -205,7 +208,7 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 		} else {
 			err = t.execMagick(origin, destination, append(imagickParams, "-quality", strconv.Itoa(saveQuality)))
 			if err != nil {
-				return err
+				return
 			}
 
 			if extension == FORMAT_PNG {
@@ -215,19 +218,43 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 					return
 				}
 
-				//// maximum later
-				//go func() {
-				//	log.Info("Thubmnailer: zopfli started")
-				//	_, er := helper.Exec("zopflipng", "-m", "--iterations="+strconv.Itoa(quality), "-y", "--lossy_transparent", destination, destination)
-				//	if er != nil {
-				//		log.Warn("Thubmnailer: zopfli error:" + er.Error())
-				//	}
-				//	log.Info("Thubmnailer: zopfli ended")
-				//}()
+				later = t.laterOptimizePng
 			}
 		}
 	}
 
+	return
+}
+
+func (t *thumbnailer) laterOptimizePng(uncompressed io.Reader) (compressed io.Reader, err error) {
+	uncompressedFile, err := ioutil.TempFile("", "thumbnail-pngi")
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(uncompressedFile.Name())
+
+	_, err = io.Copy(uncompressedFile, uncompressed)
+	if err != nil {
+		return
+	}
+
+	compressedFile, err := ioutil.TempFile("", "thumbnail-pngo")
+	defer func(name string) {
+		_ = os.Remove(name)
+	}(compressedFile.Name())
+
+	info, err := GetImageInfo(uncompressedFile.Name())
+	if err != nil {
+		return
+	}
+
+	quality := t.getQuality(info.Width, info.Height, info.Format)
+
+	_, err = helper.Exec("zopflipng", "--iterations="+strconv.Itoa(quality), "-y", "--filters=01234mepb", "--lossy_8bit", "--lossy_transparent", uncompressedFile.Name(), compressedFile.Name())
+	if err != nil {
+		return
+	}
+
+	compressed = bufio.NewReader(compressedFile)
 	return
 }
 

@@ -34,4 +34,4 @@ quality:
         to: 1800
         quality: 85
   - format: png
-    quality: 100 # number of zopfli runs
+    quality: 500 # number of zopfli runs

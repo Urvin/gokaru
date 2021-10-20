@@ -47,8 +47,8 @@ func (s *server) initRouter() {
 
 	// images cannot contain dots in filename
 	s.router.PUT("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename:^[^\\.]+$}", s.uploadHandler)
-	s.router.DELETE("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename^[^\\.]+$}", s.removeHandler)
-	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename^[^\\.]+$}", s.originHandler)
+	s.router.DELETE("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename:^[^\\.]+$}", s.removeHandler)
+	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename:^[^\\.]+$}", s.originHandler)
 	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
 }
 
@@ -191,9 +191,9 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 
 		thmbnlr := thumbnailer.NewThumbnailer()
-		thumbnailData, err := thmbnlr.Thumbnail(originInfo.Reader, miniature.Width, miniature.Height, miniature.Cast, thumbnailFileExtension)
+		thumbnailData, later, err := thmbnlr.Thumbnail(originInfo.Reader, miniature.Width, miniature.Height, miniature.Cast, thumbnailFileExtension)
 		if err != nil {
-			context.Error("Could not read origin", fasthttp.StatusInternalServerError)
+			context.Error("Could not create thumbnail", fasthttp.StatusInternalServerError)
 			log.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
 			return
 		}
@@ -203,6 +203,29 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 			context.Error("Could not save thumbnail", fasthttp.StatusInternalServerError)
 			log.Error("[server][thumbnail] Could not save thumbnail: " + err.Error())
 			return
+		}
+
+		if later != nil {
+			go func() {
+				info, er := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
+				if er != nil {
+					log.Error("[server][later] Could not read thumbnail: " + er.Error())
+					return
+				}
+
+				data, er := later(info.Reader)
+				if er != nil {
+					log.Error("[server][later] Could not later thumbnail: " + er.Error())
+					return
+				}
+
+				er = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, data)
+				if er != nil {
+					log.Error("[server][later] Could not save thumbnail: " + er.Error())
+					return
+				}
+
+			}()
 		}
 	}
 

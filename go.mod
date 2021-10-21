@@ -7,6 +7,7 @@ require (
 	github.com/fasthttp/router v1.4.3 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.13.4 // indirect
+	github.com/n-marshall/go-cp v0.0.0-20180115193924-61436d3b7cfa // indirect
 	github.com/savsgio/gotils v0.0.0-20210907153846-c06938798b52 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect

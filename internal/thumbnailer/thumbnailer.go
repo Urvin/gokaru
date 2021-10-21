@@ -1,13 +1,11 @@
 package thumbnailer
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"github.com/urvin/gokaru/internal/config"
 	"github.com/urvin/gokaru/internal/helper"
 	"gopkg.in/alessio/shellescape.v1"
-	"io"
 	"io/ioutil"
 	"math"
 	"os"
@@ -18,19 +16,16 @@ import (
 type thumbnailer struct {
 }
 
-func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, extension string) (thumbnail io.Reader, later func(io.Reader) (io.Reader, error), err error) {
+func (t *thumbnailer) Thumbnail(origin []byte, width, height, cast int, extension string) (thumbnail []byte, later func([]byte) ([]byte, error), err error) {
 	originFile, err := ioutil.TempFile("", "thumbnail-or")
 	if err != nil {
 		return
 	}
-	defer func(originFile *os.File) {
-		_ = originFile.Close()
-	}(originFile)
 	defer func(name string) {
 		_ = os.Remove(name)
 	}(originFile.Name())
 
-	_, err = io.Copy(originFile, origin)
+	err = ioutil.WriteFile(originFile.Name(), origin, 0644)
 	if err != nil {
 		return
 	}
@@ -48,11 +43,15 @@ func (t *thumbnailer) Thumbnail(origin io.Reader, width, height, cast int, exten
 		return
 	}
 
-	thumbnail = bufio.NewReader(destinationFile)
+	thumbnail, err = ioutil.ReadFile(destinationFile.Name())
+	if err != nil {
+		return
+	}
+
 	return
 }
 
-func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, cast int, extension string) (later func(io.Reader) (io.Reader, error), err error) {
+func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, cast int, extension string) (later func([]byte) ([]byte, error), err error) {
 	err = t.validateParams(width, height, cast, extension)
 	if err != nil {
 		return
@@ -220,13 +219,13 @@ func (t *thumbnailer) thumbnailFiles(origin, destination string, width, height, 
 	return
 }
 
-func (t *thumbnailer) laterOptimizePng(uncompressed io.Reader) (compressed io.Reader, err error) {
+func (t *thumbnailer) laterOptimizePng(uncompressed []byte) (compressed []byte, err error) {
 	uncompressedFile, err := ioutil.TempFile("", "thumbnail-pngi")
 	defer func(name string) {
 		_ = os.Remove(name)
 	}(uncompressedFile.Name())
 
-	_, err = io.Copy(uncompressedFile, uncompressed)
+	err = ioutil.WriteFile(uncompressedFile.Name(), uncompressed, 0644)
 	if err != nil {
 		return
 	}
@@ -248,7 +247,11 @@ func (t *thumbnailer) laterOptimizePng(uncompressed io.Reader) (compressed io.Re
 		return
 	}
 
-	compressed = bufio.NewReader(compressedFile)
+	compressed, err = ioutil.ReadFile(compressedFile.Name())
+	if err != nil {
+		return
+	}
+
 	return
 }
 

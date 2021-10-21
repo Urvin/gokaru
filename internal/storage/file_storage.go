@@ -1,14 +1,11 @@
 package storage
 
 import (
-	"bufio"
 	"crypto/md5"
 	"encoding/hex"
+	"github.com/n-marshall/go-cp"
 	"github.com/urvin/gokaru/internal/contracts"
-	"github.com/urvin/gokaru/internal/helper"
-	"io"
 	"io/ioutil"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,7 +14,6 @@ import (
 
 const IMAGE_ORIGIN_PATH = "origin"
 const IMAGE_THUMBNAIL_PATH = "thumbnail"
-const SNIFF_LENGTH = 512
 
 type fileStorage struct {
 	storagePath string
@@ -84,7 +80,7 @@ func (fs *fileStorage) SetStoragePath(path string) {
 	fs.storagePath, _ = filepath.Abs(path)
 }
 
-func (fs *fileStorage) Write(origin *contracts.Origin, data io.Reader) (err error) {
+func (fs *fileStorage) Write(origin *contracts.Origin, data []byte) (err error) {
 
 	destinationFileName := fs.getOriginFilename(origin)
 	destinationPath := filepath.Dir(destinationFileName)
@@ -98,15 +94,17 @@ func (fs *fileStorage) Write(origin *contracts.Origin, data io.Reader) (err erro
 	if err != nil {
 		return err
 	}
-	_, err = io.Copy(temporaryFile, data)
+
+	err = ioutil.WriteFile(temporaryFile.Name(), data, 0644)
 	if err != nil {
 		return err
 	}
+
 	defer func(name string) {
 		_ = os.Remove(name)
 	}(temporaryFile.Name())
 
-	err = helper.CopyFile(temporaryFile.Name(), destinationFileName)
+	err = cp.CopyFile(temporaryFile.Name(), destinationFileName)
 	if err != nil {
 		return err
 	}
@@ -152,20 +150,12 @@ func (fs *fileStorage) getFileInfo(fileName string) (info contracts.File, err er
 	info.Size = stat.Size()
 	info.ModificationTime = stat.ModTime()
 
-	contentType := mime.TypeByExtension(filepath.Ext(fileName))
-	if contentType == "" {
-		// read a chunk to decide between utf-8 text and binary
-		var buf [SNIFF_LENGTH]byte
-		n, _ := io.ReadFull(file, buf[:])
-		contentType = http.DetectContentType(buf[:n])
-		_, err = file.Seek(0, io.SeekStart) // rewind to output whole file
-		if err != nil {
-			return
-		}
+	info.Contents, err = ioutil.ReadFile(fileName)
+	if err != nil {
+		return
 	}
-	info.ContentType = contentType
 
-	info.Reader = bufio.NewReader(file)
+	info.ContentType = http.DetectContentType(info.Contents)
 	return
 }
 
@@ -178,10 +168,7 @@ func (fs *fileStorage) Read(origin *contracts.Origin) (info contracts.File, err 
 func (fs *fileStorage) ThumbnailExists(miniature *contracts.Miniature, extension string) bool {
 	thumbnailFileName := fs.getImageThumbnailFilename(miniature, extension, false)
 	_, err := os.Stat(thumbnailFileName)
-	if os.IsNotExist(err) {
-		return false
-	}
-	return true
+	return !os.IsNotExist(err)
 }
 
 func (fs *fileStorage) ReadThumbnail(miniature *contracts.Miniature, extension string) (info contracts.File, err error) {
@@ -190,7 +177,7 @@ func (fs *fileStorage) ReadThumbnail(miniature *contracts.Miniature, extension s
 	return
 }
 
-func (fs *fileStorage) WriteThumbnail(miniature *contracts.Miniature, extension string, data io.Reader) (err error) {
+func (fs *fileStorage) WriteThumbnail(miniature *contracts.Miniature, extension string, data []byte) (err error) {
 	thumbnailFileName := fs.getImageThumbnailFilename(miniature, extension, false)
 	thumbnailPath := filepath.Dir(thumbnailFileName)
 
@@ -204,7 +191,7 @@ func (fs *fileStorage) WriteThumbnail(miniature *contracts.Miniature, extension 
 		return err
 	}
 
-	_, err = io.Copy(temporaryFile, data)
+	err = ioutil.WriteFile(temporaryFile.Name(), data, 0644)
 	if err != nil {
 		return err
 	}
@@ -213,7 +200,7 @@ func (fs *fileStorage) WriteThumbnail(miniature *contracts.Miniature, extension 
 		_ = os.Remove(name)
 	}(temporaryFile.Name())
 
-	err = helper.CopyFile(temporaryFile.Name(), thumbnailFileName)
+	err = cp.CopyFile(temporaryFile.Name(), thumbnailFileName)
 	if err != nil {
 		return err
 	}

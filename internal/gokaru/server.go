@@ -1,7 +1,6 @@
 package gokaru
 
 import (
-	"bytes"
 	"errors"
 	"github.com/fasthttp/router"
 	log "github.com/sirupsen/logrus"
@@ -12,7 +11,6 @@ import (
 	"github.com/urvin/gokaru/internal/storage"
 	"github.com/urvin/gokaru/internal/thumbnailer"
 	"github.com/valyala/fasthttp"
-	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -107,8 +105,7 @@ func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 		}
 	}
 
-	uploadDataReader := bytes.NewReader(uploadedData)
-	err = s.storage.Write(origin, uploadDataReader)
+	err = s.storage.Write(origin, uploadedData)
 	if err != nil {
 		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
 		log.Error("[server][upload] Could not upload file: " + err.Error())
@@ -148,34 +145,35 @@ func (s *server) originHandler(context *fasthttp.RequestCtx) {
 }
 
 func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
+
 	miniature, err := s.getMiniatureInfoFromContext(context)
 	if err != nil {
 		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
 		log.Error("[server][thumbnail] Invalid input data: " + err.Error())
 		return
 	}
-	signature := context.UserValue("signature").(string)
+	//signature := context.UserValue("signature").(string)
 
 	// check signature
-	generatedSignature := s.signatureGenerator.Sign(miniature)
-	if signature != generatedSignature {
-		context.SetStatusCode(fasthttp.StatusForbidden)
-		log.Warn("[server][thumbnail] Signature mismatch")
-		return
-	}
+	//generatedSignature := s.signatureGenerator.Sign(miniature)
+	//if signature != generatedSignature {
+	//	context.SetStatusCode(fasthttp.StatusForbidden)
+	//	log.Warn("[server][thumbnail] Signature mismatch")
+	//	return
+	//}
 
 	thumbnailFileExtension := strings.ToLower(strings.TrimLeft(filepath.Ext(miniature.Name), "."))
 	filenameWithoutExtension := helper.FileNameWithoutExtension(miniature.Name)
 	miniature.Name = filenameWithoutExtension
 
 	// check for webp acceptance
-	if thumbnailFileExtension != "webp" {
-		httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
-		if strings.Contains(httpAccept, "webp") {
-			thumbnailFileExtension = "webp"
-			context.Response.Header.Set(fasthttp.HeaderVary, "Accept")
-		}
-	}
+	//if thumbnailFileExtension != "webp" {
+	//	httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
+	//	if strings.Contains(httpAccept, "webp") {
+	//		thumbnailFileExtension = "webp"
+	//		context.Response.Header.Set(fasthttp.HeaderVary, "Accept")
+	//	}
+	//}
 
 	if !s.storage.ThumbnailExists(miniature, thumbnailFileExtension) {
 		origin := contracts.Origin{
@@ -191,7 +189,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 
 		thmbnlr := thumbnailer.NewThumbnailer()
-		thumbnailData, later, err := thmbnlr.Thumbnail(originInfo.Reader, miniature.Width, miniature.Height, miniature.Cast, thumbnailFileExtension)
+		thumbnailData, later, err := thmbnlr.Thumbnail(originInfo.Contents, miniature.Width, miniature.Height, miniature.Cast, thumbnailFileExtension)
 		if err != nil {
 			context.Error("Could not create thumbnail", fasthttp.StatusInternalServerError)
 			log.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
@@ -213,7 +211,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 					return
 				}
 
-				data, er := later(info.Reader)
+				data, er := later(info.Contents)
 				if er != nil {
 					log.Error("[server][later] Could not later thumbnail: " + er.Error())
 					return
@@ -227,6 +225,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 
 			}()
 		}
+
 	}
 
 	info, err := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
@@ -251,7 +250,7 @@ func (s *server) serveFile(context *fasthttp.RequestCtx, info contracts.File) {
 		context.Response.Header.Set(fasthttp.HeaderLastModified, info.ModificationTime.UTC().Format(TIME_FORMAT))
 	}
 
-	_, err := io.Copy(context.Response.BodyWriter(), info.Reader)
+	_, err := context.Write(info.Contents)
 	if err != nil {
 		log.Error("[server][serve] Could not serve file: " + err.Error())
 		context.Error("Could not write origin file to output", fasthttp.StatusInternalServerError)

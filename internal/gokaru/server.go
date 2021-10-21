@@ -152,28 +152,28 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		log.Error("[server][thumbnail] Invalid input data: " + err.Error())
 		return
 	}
-	//signature := context.UserValue("signature").(string)
+	signature := context.UserValue("signature").(string)
 
 	// check signature
-	//generatedSignature := s.signatureGenerator.Sign(miniature)
-	//if signature != generatedSignature {
-	//	context.SetStatusCode(fasthttp.StatusForbidden)
-	//	log.Warn("[server][thumbnail] Signature mismatch")
-	//	return
-	//}
+	generatedSignature := s.signatureGenerator.Sign(miniature)
+	if signature != generatedSignature {
+		context.SetStatusCode(fasthttp.StatusForbidden)
+		log.Warn("[server][thumbnail] Signature mismatch")
+		return
+	}
 
 	thumbnailFileExtension := strings.ToLower(strings.TrimLeft(filepath.Ext(miniature.Name), "."))
 	filenameWithoutExtension := helper.FileNameWithoutExtension(miniature.Name)
 	miniature.Name = filenameWithoutExtension
 
 	// check for webp acceptance
-	//if thumbnailFileExtension != "webp" {
-	//	httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
-	//	if strings.Contains(httpAccept, "webp") {
-	//		thumbnailFileExtension = "webp"
-	//		context.Response.Header.Set(fasthttp.HeaderVary, "Accept")
-	//	}
-	//}
+	if thumbnailFileExtension != "webp" {
+		httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
+		if strings.Contains(httpAccept, "webp") {
+			thumbnailFileExtension = "webp"
+			context.Response.Header.Set(fasthttp.HeaderVary, "Accept")
+		}
+	}
 
 	if !s.storage.ThumbnailExists(miniature, thumbnailFileExtension) {
 		origin := contracts.Origin{

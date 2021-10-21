@@ -27,8 +27,6 @@ type server struct {
 }
 
 func (s *server) Start() error {
-	s.initSignatureGenerator()
-	s.initStorage()
 	s.initRouter()
 	return fasthttp.ListenAndServe(":"+strconv.Itoa(config.Get().Port), s.requestMiddleware)
 }
@@ -48,15 +46,6 @@ func (s *server) initRouter() {
 	s.router.DELETE("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename:^[^\\.]+$}", s.removeHandler)
 	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{category}/{filename:^[^\\.]+$}", s.originHandler)
 	s.router.GET("/{sourceType:^"+contracts.TYPE_IMAGE+"$}/{signature}/{category}/{width:[0-9]+}/{height:[0-9]+}/{cast:[0-9]+}/{filename}", s.thumbnailHandler)
-}
-
-func (s *server) initSignatureGenerator() {
-	if config.Get().SignatureAlgorithm == "md5" {
-		s.signatureGenerator = security.NewMd5SignatureGenerator()
-	} else {
-		s.signatureGenerator = security.NewMurmurSignatureGenerator()
-	}
-	s.signatureGenerator.SetSalt(config.Get().SignatureSalt)
 }
 
 func (s *server) initStorage() {
@@ -309,7 +298,9 @@ func (s *server) getMiniatureInfoFromContext(context *fasthttp.RequestCtx) (mini
 	return
 }
 
-func NewServer() Server {
+func NewServer(st storage.Storage, g security.SignatureGenerator) Server {
 	result := &server{}
+	result.signatureGenerator = g
+	result.storage = st
 	return result
 }

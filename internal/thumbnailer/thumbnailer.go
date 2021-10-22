@@ -36,7 +36,7 @@ func (t *thumbnailer) Thumbnail(origin []byte, width, height, cast int, extensio
 	}
 	defer func(name string) {
 		_ = os.Remove(name)
-	}(originFile.Name())
+	}(destinationFile.Name())
 
 	later, err = t.thumbnailFiles(originFile.Name(), destinationFile.Name(), width, height, cast, extension)
 	if err != nil {

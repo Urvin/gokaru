@@ -3,7 +3,7 @@ FROM golang:${GOLANG_VERSION}-alpine
 LABEL maintainer="Yuriy Gorbachev <yuriy@gorbachev.rocks>"
 
 RUN apk update && apk upgrade
-RUN apk add imagemagick libwebp libwebp-tools pngquant
+RUN apk add pngquant
 
 ARG MOZJPEG_VERSION=4.0.3
 RUN set -x -o pipefail \
@@ -28,6 +28,19 @@ RUN set -x -o pipefail \
     && cp ./zopflipng /usr/bin/ \
     && rm -rf /tmp/zopfli-zopfli-${ZOPFLI_VERSION}
 
+ARG IMAGEMAGICK_VERSION=7.1.0-10
+RUN set -x -o pipefail \
+    && wget -O- https://github.com/ImageMagick/ImageMagick/archive/refs/tags/${IMAGEMAGICK_VERSION}.tar.gz | tar xzC /tmp \
+    && apk add tiff fontconfig freetype libheif libwebp libxml2 \
+    && apk add --virtual imagemagick-depencies zlib-dev libpng-dev libjpeg-turbo-dev freetype-dev fontconfig-dev libwebp-dev libtool tiff-dev lcms2-dev libheif-dev  libxml2-dev \
+    && cd /tmp/ImageMagick-${IMAGEMAGICK_VERSION} \
+    && ./configure --without-magick-plus-plus --without-perl --disable-openmp --with-gvc=no --disable-docs \
+    && make -j$(nproc) \
+    && make install \
+    && ldconfig /usr/local/lib \
+    && rm -rf /tmp/ImageMagick-${IMAGEMAGICK_VERSION} \
+    && apk del --purge imagemagick-depencies \
+    && rm -rf /var/cache/apk/*
 
 ARG MODULE_PATH
 ENV MODULE_ABS_PATH="/go/src/${MODULE_PATH}"

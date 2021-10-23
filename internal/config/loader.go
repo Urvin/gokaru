@@ -8,7 +8,7 @@ import (
 
 var config *Config
 
-func Initialize() (err error) {
+func Init() (err error) {
 	config = &Config{}
 
 	err = readYml(config)
@@ -25,7 +25,6 @@ func Get() Config {
 	if config == nil {
 		panic("Configuration is not initialized")
 	}
-
 	return *config
 }
 
@@ -35,7 +34,9 @@ func readYml(cfg *Config) (err error) {
 		err = er
 		return
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
 
 	decoder := yaml.NewDecoder(f)
 	err = decoder.Decode(cfg)

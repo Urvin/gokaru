@@ -1,25 +1,28 @@
 package main
 
 import (
-	log "github.com/sirupsen/logrus"
 	"github.com/urvin/gokaru/internal/config"
 	"github.com/urvin/gokaru/internal/gokaru"
+	"github.com/urvin/gokaru/internal/logging"
 	"github.com/urvin/gokaru/internal/security"
 	"github.com/urvin/gokaru/internal/storage"
 )
 
 func main() {
-	log.Info("Gokaru starting")
+	logging.Init()
+	logger := logging.GetLogger()
+	logger.Info("Gokaru started")
 
-	err := config.Initialize()
+	err := config.Init()
 	if err != nil {
-		log.Fatal("Could not read config:" + err.Error())
+		logger.Fatal("Could not read config:" + err.Error())
 	}
+	logger.Info("Config read")
 
-	server := gokaru.NewServer(getStorage(), getSignatureGenerator())
+	server := gokaru.NewServer(getStorage(), getSignatureGenerator(), logger)
 	err = server.Start()
 	if err != nil {
-		log.Fatal("Gokaru stopped:" + err.Error())
+		logger.Fatal("Gokaru crashed:" + err.Error())
 	}
 }
 

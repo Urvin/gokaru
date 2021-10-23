@@ -6,6 +6,7 @@ import (
 	"github.com/n-marshall/go-cp"
 	"github.com/urvin/gokaru/internal/contracts"
 	"io/ioutil"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -155,7 +156,11 @@ func (fs *fileStorage) getFileInfo(fileName string) (info contracts.File, err er
 		return
 	}
 
-	info.ContentType = http.DetectContentType(info.Contents)
+	info.ContentType = mime.TypeByExtension(filepath.Ext(fileName))
+	if info.ContentType == "" {
+		info.ContentType = http.DetectContentType(info.Contents)
+	}
+
 	return
 }
 

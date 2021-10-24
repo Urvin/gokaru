@@ -1,9 +1,9 @@
-ARG GOLANG_VERSION=1.17.1
-FROM golang:${GOLANG_VERSION}-alpine
+ARG GOLANG_VERSION=1.17.2
+FROM golang:${GOLANG_VERSION}-alpine3.14
 LABEL maintainer="Yuriy Gorbachev <yuriy@gorbachev.rocks>"
 
 RUN apk update && apk upgrade
-RUN apk add pngquant
+RUN apk add pngquant pkgconfig
 
 ARG MOZJPEG_VERSION=4.0.3
 RUN set -x -o pipefail \

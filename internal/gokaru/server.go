@@ -11,6 +11,7 @@ import (
 	"github.com/urvin/gokaru/internal/storage"
 	"github.com/urvin/gokaru/internal/thumbnailer"
 	"github.com/valyala/fasthttp"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -193,6 +194,8 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 			return
 		}
 
+		s.serveBytes(context, thumbnailData, thumbnailFileExtension)
+
 		if later != nil {
 			go func() {
 				info, er := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
@@ -215,16 +218,16 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 			}()
 		}
 
-	}
+	} else {
+		info, err := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
+		if err != nil {
+			context.Error("Could not read thumbnail", fasthttp.StatusInternalServerError)
+			s.logger.Error("[server][thumbnail] Could not read thumbnail file: " + err.Error())
+			return
+		}
 
-	info, err := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
-	if err != nil {
-		context.Error("Could not read thumbnail", fasthttp.StatusInternalServerError)
-		s.logger.Error("[server][thumbnail] Could not read thumbnail file: " + err.Error())
-		return
+		s.serveFile(context, info)
 	}
-
-	s.serveFile(context, info)
 }
 
 func (s *server) serveFile(context *fasthttp.RequestCtx, info contracts.File) {
@@ -248,6 +251,23 @@ func (s *server) serveFile(context *fasthttp.RequestCtx, info contracts.File) {
 
 	context.SetStatusCode(fasthttp.StatusOK)
 	context.Response.Header.Set(fasthttp.HeaderCacheControl, "max-age=2592000") // 30d
+}
+
+func (s *server) serveBytes(context *fasthttp.RequestCtx, data []byte, extension string) {
+
+	contentType := mime.TypeByExtension(extension)
+	if contentType == "" {
+		contentType = http.DetectContentType(data)
+	}
+
+	context.Response.Header.Set(fasthttp.HeaderContentType, contentType)
+	context.Response.Header.Set(fasthttp.HeaderLastModified, time.Now().UTC().Format(TIME_FORMAT))
+	_, err := context.Write(data)
+	if err != nil {
+		s.logger.Error("[server][serve] Could not serve file: " + err.Error())
+		context.Error("Could not write origin file to output", fasthttp.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *server) getOriginInfoFromContext(context *fasthttp.RequestCtx) (origin *contracts.Origin, err error) {

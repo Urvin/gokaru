@@ -33,6 +33,7 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 
 	_, depth := imagick.GetQuantumDepth()
 	fuzz5prc := math.Pow(2, float64(depth)) * .05
+	fuzz30prc := math.Pow(2, float64(depth)) * .3
 
 	mw := imagick.NewMagickWand()
 	err = mw.ReadImageBlob(origin)
@@ -58,12 +59,82 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 		!t.hasCast(CAST_OPAQUE_BACKGROUND, cast) &&
 		!destinationIsOpaque {
 
-		//firstPixel, er := mw.GetImagePixelColor(0, 0)
-		//if er != nil {
-		//	err = er
-		//	return
-		//}
+		firstPixel, er := mw.GetImagePixelColor(0, 0)
+		if er != nil {
+			err = er
+			return
+		}
 		// TODO: прозрачный фон
+
+		mw2 := imagick.NewMagickWand()
+		err = mw2.ReadImageBlob(origin)
+		if er != nil {
+			err = er
+			return
+		}
+
+		err = mw2.FloodfillPaintImage(firstPixel, fuzz30prc, firstPixel, 0, 0, false)
+		if er != nil {
+			err = er
+			return
+		}
+
+		err = mw2.SetImageAlphaChannel(imagick.ALPHA_CHANNEL_EXTRACT)
+		if er != nil {
+			err = er
+			return
+		}
+
+		err = mw2.ResizeImage(mw2.GetImageWidth()*2, mw2.GetImageHeight()*2, imagick.FILTER_LANCZOS)
+		if er != nil {
+			err = er
+			return
+		}
+
+		err = mw2.BlurImage(0, 0.5)
+		if er != nil {
+			err = er
+			return
+		}
+
+		kernelInfo, er := imagick.NewKernelInfoBuiltIn(imagick.KERNEL_SQUARE, "1")
+		if er != nil {
+			err = er
+			return
+		}
+
+		er = mw2.MorphologyImage(imagick.MORPHOLOGY_ERODE, 1, kernelInfo)
+		if er != nil {
+			err = er
+			return
+		}
+
+		er = mw2.ResizeImage(mw2.GetImageWidth()/2, mw2.GetImageHeight()/2, imagick.FILTER_LANCZOS)
+		if er != nil {
+			err = er
+			return
+		}
+
+		er = mw.CompositeImage(mw2, imagick.COMPOSITE_OP_COPY_ALPHA, false, 0, 0)
+		if er != nil {
+			err = er
+			return
+		}
+
+		//color=$( convert filename.png -format "%[pixel:p{0,0}]" info:- )
+		//convert filename.png -alpha off -bordercolor $color -border 1 \
+		//    \( +clone -fuzz 30% -fill none -floodfill +0+0 $color \
+		//       -alpha extract -geometry 200% -blur 0x0.5 \
+		//       -morphology erode square:1 -geometry 50% \) \
+		//    -compose CopyOpacity -composite -shave 1 outputfilename.png
+
+		//mw.CompositeImage(mw, COMPOSITE_OP_COPY_ALPHA)
+		//if firstPixelColor != "" {
+		//			imagickParams = append(imagickParams, "-alpha", "off", "-bordercolor", firstPixelColor,
+		//			"-border", "1", "(", "+clone", "-fuzz", "20%", "-fill", "none", "-floodfill", "+0+0", firstPixelColor, "-alpha", "extract",
+		//			"-geometry", "200%", "-blur", "0x0.5", "-morphology", "erode", "square:1", "-geometry", "50%", ")",
+		//			"-compose", "CopyOpacity", "-composite", "-shave", "1", "-compose", "add")
+		//		}
 	}
 
 	// Set opaque background
@@ -95,6 +166,9 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 			return
 		}
 		trimmed = true
+
+		info.Width = mw.GetImageWidth()
+		info.Height = mw.GetImageHeight()
 	}
 
 	forceExtent := false
@@ -129,6 +203,7 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 
 	resizeWidth := width
 	resizeHeight := height
+
 	padding := uint(config.Get().Padding)
 	if t.hasCast(CAST_TRIM_PADDING, cast) && t.hasCast(CAST_TRIM, cast) &&
 		resizeWidth > 2*padding && resizeHeight > 2*padding {
@@ -137,7 +212,7 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 		forceExtent = true
 	}
 
-	if shouldResize && (info.Width != resizeWidth || info.Height != resizeHeight || trimmed) {
+	if shouldResize && (info.Width != resizeWidth || info.Height != resizeHeight) || trimmed {
 		err = mw.ResizeImage(resizeWidth, resizeHeight, RESIZE_FILTER)
 		if err != nil {
 			return
@@ -154,7 +229,7 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 				return
 			}
 		}
-		err = mw.SetGravity(imagick.GRAVITY_CENTER)
+		err = mw.ExtentImage(width, height, -int(float64(width-mw.GetImageWidth())/2), -int(float64(height-mw.GetImageHeight())/2))
 		if err != nil {
 			return
 		}

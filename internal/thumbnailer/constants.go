@@ -1,5 +1,7 @@
 package thumbnailer
 
+import "gopkg.in/gographics/imagick.v3/imagick"
+
 const (
 	// CAST_RESIZE_TENSILE Растяжение
 	CAST_RESIZE_TENSILE = 2
@@ -30,7 +32,7 @@ const (
 	FORMAT_WEBP = "webp"
 	FORMAT_GIF  = "gif"
 
-	RESIZE_FILTER = "sinc"
+	RESIZE_FILTER = imagick.FILTER_SINC
 )
 
 var FORMATS_ALLOWED = []string{FORMAT_JPG, FORMAT_PNG, FORMAT_WEBP, FORMAT_GIF}

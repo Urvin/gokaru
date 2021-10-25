@@ -7,6 +7,9 @@ signature_salt: 'secret'
 # Signature algorithm, use md5 or murmur
 signature_algorithm: 'murmur'
 
+# Enforce Webp
+enforce_webp: true
+
 # padding value for add padding cast
 padding: 10
 
@@ -34,12 +37,10 @@ quality:
         to: 1800
         quality: 85
   - format: png
-    quality: 100 #pngquant maximum quality
-    quality_min: 40 #pngquant minimum quality
-    iterations: 200 #zopfli iterations
+    quality: 80 # any less than 100 to quantize
+    iterations: 200 # zopfli iterations, 0 not to zopflify
     conditions:
       - from: 0
         to: 500
         quality: 100
-        quality_min: 40
         iterations: 500

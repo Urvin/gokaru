@@ -5,14 +5,13 @@ import (
 	"github.com/fasthttp/router"
 	"github.com/urvin/gokaru/internal/config"
 	"github.com/urvin/gokaru/internal/contracts"
+	"github.com/urvin/gokaru/internal/fileinfo"
 	"github.com/urvin/gokaru/internal/helper"
 	"github.com/urvin/gokaru/internal/logging"
 	"github.com/urvin/gokaru/internal/security"
 	"github.com/urvin/gokaru/internal/storage"
 	"github.com/urvin/gokaru/internal/thumbnailer"
 	"github.com/valyala/fasthttp"
-	"mime"
-	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -84,7 +83,7 @@ func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 	uploadedData := context.Request.Body()
 
 	if origin.Type == contracts.TYPE_IMAGE {
-		contentType := http.DetectContentType(uploadedData)
+		contentType := fileinfo.MimeByData(uploadedData)
 
 		if contentType != "image/bmp" &&
 			contentType != "image/gif" &&
@@ -144,6 +143,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		s.logger.Error("[server][thumbnail] Invalid input data: " + err.Error())
 		return
 	}
+
 	signature := context.UserValue("signature").(string)
 
 	// check signature
@@ -158,8 +158,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 	filenameWithoutExtension := helper.FileNameWithoutExtension(miniature.Name)
 	miniature.Name = filenameWithoutExtension
 
-	// check for webp acceptance
-	if thumbnailFileExtension != "webp" {
+	if config.Get().EnforceWebp && thumbnailFileExtension != "webp" {
 		httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
 		if strings.Contains(httpAccept, "webp") {
 			thumbnailFileExtension = "webp"
@@ -180,7 +179,13 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 			return
 		}
 
-		thumbnailData, later, err := s.thumbnailer.Thumbnail(originInfo.Contents, miniature.Width, miniature.Height, miniature.Cast, thumbnailFileExtension)
+		to := thumbnailer.ThumbnailOptions{}
+		to.SetWidth(uint(miniature.Width))
+		to.SetHeight(uint(miniature.Height))
+		to.SetImageTypeWithExtension(thumbnailFileExtension)
+		to.SetOptionsWithCast(uint(miniature.Cast))
+
+		thumbnailData, later, err := s.thumbnailer.Thumbnail(originInfo.Contents, to)
 		if err != nil {
 			context.Error("Could not create thumbnail", fasthttp.StatusInternalServerError)
 			s.logger.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
@@ -254,10 +259,9 @@ func (s *server) serveFile(context *fasthttp.RequestCtx, info contracts.File) {
 }
 
 func (s *server) serveBytes(context *fasthttp.RequestCtx, data []byte, extension string) {
-
-	contentType := mime.TypeByExtension(extension)
+	contentType := fileinfo.MimeByExtension(extension)
 	if contentType == "" {
-		contentType = http.DetectContentType(data)
+		contentType = fileinfo.MimeByData(data)
 	}
 
 	context.Response.Header.Set(fasthttp.HeaderContentType, contentType)
@@ -323,6 +327,6 @@ func NewServer(st storage.Storage, g security.SignatureGenerator, l logging.Logg
 	result.signatureGenerator = g
 	result.storage = st
 	result.logger = l
-	result.thumbnailer = thumbnailer.NewThumbnailer()
+	result.thumbnailer = thumbnailer.NewThumbnailer(l)
 	return result
 }

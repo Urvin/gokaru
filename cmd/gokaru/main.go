@@ -6,7 +6,7 @@ import (
 	"github.com/urvin/gokaru/internal/logging"
 	"github.com/urvin/gokaru/internal/security"
 	"github.com/urvin/gokaru/internal/storage"
-	"gopkg.in/gographics/imagick.v3/imagick"
+	"github.com/urvin/gokaru/internal/vips"
 )
 
 func main() {
@@ -17,11 +17,16 @@ func main() {
 	err := config.Init()
 	if err != nil {
 		logger.Fatal("Could not read config:" + err.Error())
+		panic(err)
 	}
 	logger.Info("Config read")
 
-	imagick.Initialize()
-	defer imagick.Terminate()
+	err = vips.Startup()
+	if err != nil {
+		logger.Fatal("Could not start vips:" + err.Error())
+		panic(err)
+	}
+	defer vips.Shutdown()
 
 	server := gokaru.NewServer(getStorage(), getSignatureGenerator(), logger)
 	err = server.Start()

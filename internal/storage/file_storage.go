@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"github.com/n-marshall/go-cp"
 	"github.com/urvin/gokaru/internal/contracts"
+	"github.com/urvin/gokaru/internal/fileinfo"
 	"io/ioutil"
 	"mime"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -158,7 +158,7 @@ func (fs *fileStorage) getFileInfo(fileName string) (info contracts.File, err er
 
 	info.ContentType = mime.TypeByExtension(filepath.Ext(fileName))
 	if info.ContentType == "" {
-		info.ContentType = http.DetectContentType(info.Contents)
+		info.ContentType = fileinfo.MimeByData(info.Contents)
 	}
 
 	return

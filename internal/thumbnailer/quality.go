@@ -1,7 +1,6 @@
 package thumbnailer
 
-type Quality struct {
+type quality struct {
 	Quality    uint
-	QualityMin uint
 	Iterations uint
 }

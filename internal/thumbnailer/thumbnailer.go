@@ -4,196 +4,274 @@ import (
 	"errors"
 	"fmt"
 	"github.com/urvin/gokaru/internal/config"
+	"github.com/urvin/gokaru/internal/fileinfo"
 	"github.com/urvin/gokaru/internal/helper"
-	"gopkg.in/gographics/imagick.v3/imagick"
+	"github.com/urvin/gokaru/internal/logging"
+	"github.com/urvin/gokaru/internal/vips"
 	"io/ioutil"
 	"math"
 	"os"
 	"strconv"
-	"strings"
 )
 
 type thumbnailer struct {
+	logger  logging.Logger
+	imageId uint64
 }
 
-func (t *thumbnailer) Thumbnail(origin []byte, width, height, cast int, extension string) (thumbnail []byte, later func([]byte) ([]byte, error), err error) {
-	err = t.validateParams(width, height, cast, extension)
+func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbnail []byte, later func([]byte) ([]byte, error), err error) {
+	originMime := fileinfo.MimeByData(origin)
+	originType := vips.ImageTypeByByMime(originMime)
+	if originType == vips.ImageTypeUnknown {
+		err = errors.New("unknown origin image type")
+		return
+	}
+
+	if options.ImageType() == vips.ImageTypeUnknown {
+		err = errors.New("unknown destination image type")
+		return
+	}
+
+	animationSupport := originType.SupportsAnimation() && options.ImageType().SupportsAnimation()
+	pages := 1
+	if animationSupport {
+		pages = -1
+	}
+
+	image := new(vips.Image)
+	defer image.Clear()
+	defer vips.Cleanup()
+
+	err = image.Load(origin, originType, 1, 1.0, pages)
 	if err != nil {
 		return
 	}
-	thumbnail, later, err = t.thumbnailBytes(origin, uint(width), uint(height), uint(cast), extension)
+
+	imageId := t.newImageId()
+	t.logger.Info(fmt.Sprintf("[thumbnailer] #%d NEW THUMBNAIL", imageId))
+
+	if animationSupport && image.IsAnimated() {
+		err = t.transformFrames(imageId, origin, image, originType, &options)
+	} else {
+		err = t.transformFrame(imageId, image, &options)
+	}
+	if err != nil {
+		return
+	}
+
+	err = image.CopyMemory()
+	if err != nil {
+		return
+	}
+
+	q := t.getQuality(uint(image.Width()), uint(image.Height()), options.ImageType())
+
+	switch options.ImageType() {
+	case vips.ImageTypeJPEG:
+		jo := vips.NewJpegSaveOptions()
+		jo.Quality = int(q.Quality)
+		thumbnail, err = image.SaveJpeg(jo)
+	case vips.ImageTypePNG:
+		po := vips.NewPngSaveOptions()
+		po.Quantize = true
+		if q.Quality == 100 {
+			po.Quantize = false
+		}
+		thumbnail, err = image.SavePng(po)
+		if q.Iterations > 0 {
+			later = t.laterOptimizePng
+		}
+	case vips.ImageTypeWEBP:
+		wo := vips.NewWebpSaveOptions()
+		wo.Quality = int(q.Quality)
+		thumbnail, err = image.SaveWebp(wo)
+	case vips.ImageTypeAVIF:
+		ao := vips.NewAvifSaveptions()
+		ao.Quality = int(q.Quality)
+		thumbnail, err = image.SaveAvif(ao)
+	default:
+		thumbnail, err = image.Save(options.ImageType(), int(q.Quality))
+	}
+
 	return
 }
 
-func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, extension string) (thumbnail []byte, later func([]byte) ([]byte, error), err error) {
+func (t *thumbnailer) transformFrames(imageId uint64, origin []byte, image *vips.Image, originType vips.ImageType, options *ThumbnailOptions) (err error) {
+	if options.Trim() {
+		options.SetTrim(false)
+		t.logger.Warn("Trim is not supported for animated images")
+	}
 
-	destinationIsOpaque := helper.StringInSlice(extension, FORMATS_OPAQUE)
-	opaqueBackgroundSet := false
+	imgWidth := image.Width()
+
+	frameHeight, err := image.GetInt("page-height")
+	if err != nil {
+		return err
+	}
+
+	framesCount := image.Height() / frameHeight
+	if nPages, _ := image.GetIntDefault("n-pages", 0); nPages > framesCount {
+		if err = image.Load(origin, originType, 1, 1.0, framesCount); err != nil {
+			return err
+		}
+	}
+
+	t.logger.Info(fmt.Sprintf("[thumbnailer] #%d is animated with %d frames", imageId, framesCount))
+
+	delay, err := image.GetIntSliceDefault("delay", nil)
+	if err != nil {
+		return err
+	}
+	loop, err := image.GetIntDefault("loop", 0)
+	if err != nil {
+		return err
+	}
+	gifLoop, err := image.GetIntDefault("gif-loop", -1)
+	if err != nil {
+		return err
+	}
+	gifDelay, err := image.GetIntDefault("gif-delay", -1)
+	if err != nil {
+		return err
+	}
+
+	frames := make([]*vips.Image, framesCount)
+	defer func() {
+		for _, frame := range frames {
+			if frame != nil {
+				frame.Clear()
+			}
+		}
+	}()
+
+	for i := 0; i < framesCount; i++ {
+		frame := new(vips.Image)
+
+		if err = image.Extract(frame, 0, i*frameHeight, imgWidth, frameHeight); err != nil {
+			return err
+		}
+
+		frames[i] = frame
+
+		if err = t.transformFrame(imageId, frame, options); err != nil {
+			return err
+		}
+
+		if err = frame.CopyMemory(); err != nil {
+			return err
+		}
+	}
+
+	if err = image.Arrayjoin(frames); err != nil {
+		return err
+	}
+	if err = image.CastUchar(); err != nil {
+		return err
+	}
+	if err = image.CopyMemory(); err != nil {
+		return err
+	}
+
+	if len(delay) == 0 {
+		delay = make([]int, framesCount)
+		for i := range delay {
+			delay[i] = 40
+		}
+	} else if len(delay) > framesCount {
+		delay = delay[:framesCount]
+	}
+
+	image.SetInt("page-height", frames[0].Height())
+	image.SetIntSlice("delay", delay)
+	image.SetInt("loop", loop)
+	image.SetInt("n-pages", framesCount)
+
+	if gifLoop >= 0 {
+		image.SetInt("gif-loop", gifLoop)
+	}
+	if gifDelay >= 0 {
+		image.SetInt("gif-delay", gifDelay)
+	}
+
+	return
+}
+
+func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options *ThumbnailOptions) (err error) {
+	whiteColor := vips.RgbColor{
+		R: 255,
+		G: 255,
+		B: 255,
+	}
 	trimmed := false
 
-	_, depth := imagick.GetQuantumDepth()
-	fuzz5prc := math.Pow(2, float64(depth)) * .05
-	fuzz30prc := math.Pow(2, float64(depth)) * .3
-
-	mw := imagick.NewMagickWand()
-	err = mw.ReadImageBlob(origin)
-	if err != nil {
-		return
+	if err = image.Rad2Float(); err != nil {
+		return err
+	}
+	if err = image.RgbColourspace(); err != nil {
+		return err
 	}
 
-	info, err := GetImageInfoWand(mw)
-	if err != nil {
-		return
-	}
-
-	err = mw.StripImage()
-	if err != nil {
-	}
-	if info.Format == FORMAT_GIF {
-		mw.CoalesceImages()
-	}
-
-	// Set transparent background
-	if !info.Alpha &&
-		t.hasCast(CAST_TRANSPARENT_BACKGROUND, cast) &&
-		!t.hasCast(CAST_OPAQUE_BACKGROUND, cast) &&
-		!destinationIsOpaque {
-
-		firstPixel, er := mw.GetImagePixelColor(0, 0)
-		if er != nil {
-			err = er
-			return
-		}
-		// TODO: прозрачный фон
-
-		mw2 := imagick.NewMagickWand()
-		err = mw2.ReadImageBlob(origin)
-		if er != nil {
-			err = er
-			return
-		}
-
-		err = mw2.FloodfillPaintImage(firstPixel, fuzz30prc, firstPixel, 0, 0, false)
-		if er != nil {
-			err = er
-			return
-		}
-
-		err = mw2.SetImageAlphaChannel(imagick.ALPHA_CHANNEL_EXTRACT)
-		if er != nil {
-			err = er
-			return
-		}
-
-		err = mw2.ResizeImage(mw2.GetImageWidth()*2, mw2.GetImageHeight()*2, imagick.FILTER_LANCZOS)
-		if er != nil {
-			err = er
-			return
-		}
-
-		err = mw2.BlurImage(0, 0.5)
-		if er != nil {
-			err = er
-			return
-		}
-
-		kernelInfo, er := imagick.NewKernelInfoBuiltIn(imagick.KERNEL_SQUARE, "1")
-		if er != nil {
-			err = er
-			return
-		}
-
-		er = mw2.MorphologyImage(imagick.MORPHOLOGY_ERODE, 1, kernelInfo)
-		if er != nil {
-			err = er
-			return
-		}
-
-		er = mw2.ResizeImage(mw2.GetImageWidth()/2, mw2.GetImageHeight()/2, imagick.FILTER_LANCZOS)
-		if er != nil {
-			err = er
-			return
-		}
-
-		er = mw.CompositeImage(mw2, imagick.COMPOSITE_OP_COPY_ALPHA, false, 0, 0)
-		if er != nil {
-			err = er
-			return
-		}
-
-		//color=$( convert filename.png -format "%[pixel:p{0,0}]" info:- )
-		//convert filename.png -alpha off -bordercolor $color -border 1 \
-		//    \( +clone -fuzz 30% -fill none -floodfill +0+0 $color \
-		//       -alpha extract -geometry 200% -blur 0x0.5 \
-		//       -morphology erode square:1 -geometry 50% \) \
-		//    -compose CopyOpacity -composite -shave 1 outputfilename.png
-
-		//mw.CompositeImage(mw, COMPOSITE_OP_COPY_ALPHA)
-		//if firstPixelColor != "" {
-		//			imagickParams = append(imagickParams, "-alpha", "off", "-bordercolor", firstPixelColor,
-		//			"-border", "1", "(", "+clone", "-fuzz", "20%", "-fill", "none", "-floodfill", "+0+0", firstPixelColor, "-alpha", "extract",
-		//			"-geometry", "200%", "-blur", "0x0.5", "-morphology", "erode", "square:1", "-geometry", "50%", ")",
-		//			"-compose", "CopyOpacity", "-composite", "-shave", "1", "-compose", "add")
-		//		}
-	}
-
-	// Set opaque background
-	if t.hasCast(CAST_OPAQUE_BACKGROUND, cast) || (info.Alpha && destinationIsOpaque) {
-		bgcolor := imagick.NewPixelWand()
-		bgcolor.SetColor("white")
-
-		err = mw.SetImageBackgroundColor(bgcolor)
+	// set transparent background
+	if options.TransparentBackground() && !options.OpaqueBackground() && options.ImageType().SupportsAlpha() {
+		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d set transparent background", imageId))
+		err = createTransparentBackground(image)
 		if err != nil {
 			return
 		}
-
-		err = mw.SetImageAlpha(1)
-		if err != nil {
-			return
-		}
-		err = mw.FloodfillPaintImage(bgcolor, fuzz5prc, bgcolor, 0, 0, false)
-		if err != nil {
-			return
-		}
-
-		opaqueBackgroundSet = true
 	}
 
-	// trim image
-	if t.hasCast(CAST_TRIM, cast) {
-		err = mw.TrimImage(fuzz5prc)
+	// set opaque background
+	if options.OpaqueBackground() || image.HasAlpha() && !options.ImageType().SupportsAlpha() {
+		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d flatten to white", imageId))
+		err = image.Flatten(whiteColor)
+		if err != nil {
+			return
+		}
+	}
+
+	// trim
+	if options.Trim() {
+		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d smart trim", imageId))
+		err = image.Trim(
+			10,
+			true,
+			whiteColor,
+			false,
+			false,
+		)
 		if err != nil {
 			return
 		}
 		trimmed = true
-
-		info.Width = mw.GetImageWidth()
-		info.Height = mw.GetImageHeight()
 	}
 
+	// resize
 	forceExtent := false
 	shouldResize := false
 
-	if width == 0 && height == 0 {
-		width = info.Width
-		height = info.Height
-	} else if width == 0 {
+	resizeWidth := options.Width()
+	resizeHeight := options.Height()
+
+	if options.Width() == 0 && options.Height() == 0 {
+		resizeWidth = uint(image.Width())
+		resizeHeight = uint(image.Height())
+	} else if options.Width() == 0 {
 		shouldResize = true
-		width = uint(math.Floor(float64(info.Width) * float64(height) / float64(info.Height)))
-	} else if height == 0 {
+		resizeWidth = uint(math.Floor(float64(image.Width()) * float64(options.Height()) / float64(image.Height())))
+	} else if options.Height() == 0 {
 		shouldResize = true
-		height = uint(math.Floor(float64(info.Height) * float64(width) / float64(info.Width)))
-	} else if t.hasCast(CAST_RESIZE_TENSILE, cast) {
+		resizeHeight = uint(math.Floor(float64(image.Height()) * float64(options.Width()) / float64(image.Width())))
+	} else if options.ResizeTensile() {
 		shouldResize = true
-	} else if t.hasCast(CAST_RESIZE_PRECISE, cast) {
+	} else if options.ResizePrecise() {
 		shouldResize = true
-		width, height, err = calculateWHWithAspectRatio(info.Width, info.Height, width, height, true)
+		resizeWidth, resizeHeight, err = calculateWHWithAspectRatio(uint(image.Width()), uint(image.Height()), options.Width(), options.Height(), true)
 		if err != nil {
 			return
 		}
-	} else if t.hasCast(CAST_RESIZE_INVERSE, cast) {
+	} else if options.ResizeInverse() {
 		shouldResize = true
-		width, height, err = calculateWHWithAspectRatio(info.Width, info.Height, width, height, false)
+		resizeWidth, resizeHeight, err = calculateWHWithAspectRatio(uint(image.Width()), uint(image.Height()), options.Width(), options.Height(), false)
 		if err != nil {
 			return
 		}
@@ -201,93 +279,118 @@ func (t *thumbnailer) thumbnailBytes(origin []byte, width, height, cast uint, ex
 		forceExtent = true
 	}
 
-	resizeWidth := width
-	resizeHeight := height
-
-	padding := uint(config.Get().Padding)
-	if t.hasCast(CAST_TRIM_PADDING, cast) && t.hasCast(CAST_TRIM, cast) &&
-		resizeWidth > 2*padding && resizeHeight > 2*padding {
+	padding := config.Get().Padding
+	if options.Padding() && options.Trim() && resizeWidth > 2*padding && resizeHeight > 2*padding {
+		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d add padding", imageId))
 		resizeWidth -= 2 * padding
 		resizeHeight -= 2 * padding
 		forceExtent = true
 	}
 
-	if shouldResize && (info.Width != resizeWidth || info.Height != resizeHeight) || trimmed {
-		err = mw.ResizeImage(resizeWidth, resizeHeight, RESIZE_FILTER)
+	if shouldResize && (uint(image.Width()) != resizeWidth || uint(image.Height()) != resizeHeight) || trimmed {
+		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d resize to %dx%d", imageId, resizeWidth, resizeHeight))
+		err = image.Thumbnail(int(resizeWidth), int(resizeHeight))
 		if err != nil {
 			return
 		}
 	}
 
-	// extent
-	if forceExtent || t.hasCast(CAST_EXTENT, cast) {
-		if !opaqueBackgroundSet {
-			bgnone := imagick.NewPixelWand()
-			bgnone.SetColor("none")
-			err = mw.SetImageBackgroundColor(bgnone)
-			if err != nil {
-				return
-			}
-		}
-		err = mw.ExtentImage(width, height, -int(float64(width-mw.GetImageWidth())/2), -int(float64(height-mw.GetImageHeight())/2))
+	if forceExtent || options.Extent() {
+		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d extent image to %dx%d with transparent background: %t", imageId, options.Width(), options.Height(), options.ImageType().SupportsAlpha()))
+
+		offX := (int(options.Width()) - image.Width()) / 2
+		offY := (int(options.Height()) - image.Height()) / 2
+
+		err = image.Embed(
+			int(options.Width()),
+			int(options.Height()),
+			offX,
+			offY,
+			whiteColor,
+			options.ImageType().SupportsAlpha())
 		if err != nil {
 			return
 		}
 	}
 
-	quality := t.getQuality(width, height, extension)
-
-	if info.Animated && helper.StringInSlice(extension, FORMATS_ANIMATED) {
-		if extension == FORMAT_GIF {
-			//TODO: optimize gif
-		} else {
-			mw.OptimizeImageLayers()
-			err = mw.SetImageCompressionQuality(quality.Quality)
-			if err != nil {
-				return
-			}
-		}
-	} else {
-		if info.Animated {
-			mw.MergeImageLayers(imagick.IMAGE_LAYER_FLATTEN)
-		}
-
-		imQuality := quality.Quality
-		imExtension := extension
-
-		if extension == FORMAT_JPG || extension == FORMAT_PNG {
-			imQuality = 100
-		}
-
-		err = mw.SetFormat(imExtension)
-		if err != nil {
-			return
-		}
-
-		err = mw.SetImageCompressionQuality(imQuality)
-		if err != nil {
-			return
-		}
-
-		thumbnail = mw.GetImageBlob()
-
-		if extension == FORMAT_JPG {
-			thumbnail, err = mozjpeg(thumbnail, quality.Quality)
-			return
-		} else if extension == FORMAT_PNG {
-			thumbnail, err = pngquant(thumbnail, quality.QualityMin, quality.Quality)
-			if err != nil {
-				later = t.laterOptimizePng
-			}
-			return
-		}
-
+	if err = image.TransformColourProfile(); err != nil {
+		return err
+	}
+	if err = image.RemoveColourProfile(); err != nil {
+		return err
+	}
+	if err = image.CastUchar(); err != nil {
+		return err
+	}
+	if err = image.Strip(); err != nil {
+		return err
+	}
+	if err = image.CopyMemory(); err != nil {
+		return err
 	}
 
-	return
+	return nil
+}
+
+func (t *thumbnailer) getQuality(width, height uint, imgtype vips.ImageType) quality {
+	defaultQuality := quality{
+		Quality:    config.Get().QualityDefault,
+		Iterations: 100,
+	}
+
+	imgTypeExtension := imgtype.String()
+
+	result := defaultQuality
+	halfPerimeter := width + height
+
+	for _, qualityFormat := range config.Get().Quality {
+		if qualityFormat.Format == imgTypeExtension {
+			result.Quality = qualityFormat.Quality
+			result.Iterations = qualityFormat.Iterations
+
+			for _, condition := range qualityFormat.Conditions {
+				if halfPerimeter >= condition.From && halfPerimeter < condition.To {
+					result.Quality = condition.Quality
+					result.Iterations = condition.Iterations
+					break
+				}
+			}
+			break
+		}
+	}
+
+	if result.Quality <= 0 {
+		result = defaultQuality
+	}
+	if result.Quality > 100 {
+		result.Quality = 100
+	}
+	if result.Iterations < 0 {
+		result.Iterations = 100
+	}
+
+	return result
 }
 
 func (t *thumbnailer) laterOptimizePng(uncompressed []byte) (compressed []byte, err error) {
+	originMime := fileinfo.MimeByData(uncompressed)
+	originType := vips.ImageTypeByByMime(originMime)
+	if originType == vips.ImageTypeUnknown {
+		err = errors.New("unknown origin image type")
+		return
+	}
+
+	image := new(vips.Image)
+	defer image.Clear()
+	defer vips.Cleanup()
+
+	err = image.Load(uncompressed, originType, 1, 1.0, 1)
+	if err != nil {
+		return
+	}
+
+	quality := t.getQuality(uint(image.Width()), uint(image.Height()), originType)
+
 	uncompressedFile, err := ioutil.TempFile("", "thumbnail-pngi")
 	defer func(name string) {
 		_ = os.Remove(name)
@@ -303,13 +406,6 @@ func (t *thumbnailer) laterOptimizePng(uncompressed []byte) (compressed []byte, 
 		_ = os.Remove(name)
 	}(compressedFile.Name())
 
-	info, err := GetImageInfoFile(uncompressedFile.Name())
-	if err != nil {
-		return
-	}
-
-	quality := t.getQuality(info.Width, info.Height, info.Format)
-
 	_, err = helper.Exec("zopflipng", "--iterations="+strconv.FormatUint(uint64(quality.Iterations), 10), "-y", "--filters=01234mepb", "--lossy_8bit", "--lossy_transparent", uncompressedFile.Name(), compressedFile.Name())
 	if err != nil {
 		return
@@ -323,100 +419,13 @@ func (t *thumbnailer) laterOptimizePng(uncompressed []byte) (compressed []byte, 
 	return
 }
 
-func (t *thumbnailer) validateParams(width, height, cast int, extension string) (err error) {
-	if width < 0 {
-		err = errors.New("width should not be less than 0")
-		return
-	}
-	if height < 0 {
-		err = errors.New("height should not be less than 0")
-		return
-	}
-	if cast < 0 {
-		err = errors.New("cast should not be less than 0")
-		return
-	}
-	if !helper.StringInSlice(extension, FORMATS_ALLOWED) {
-		err = fmt.Errorf("'%s' in not a valid thumbnail format", extension)
-	}
-	return
+func (t *thumbnailer) newImageId() uint64 {
+	t.imageId++
+	return t.imageId
 }
 
-func (t *thumbnailer) hasCast(needle uint, haystack uint) bool {
-	return (haystack & needle) > 0
-}
-
-func (t *thumbnailer) getFirstPixelColor(fileName string) (color string, err error) {
-
-	output, er := helper.Exec("convert", fileName, "-format", "%[pixel:p{0,0}]", "info:-")
-	if er != nil {
-		err = er
-		return
-	}
-	color = strings.Trim(output, "\n\r\t ")
-	return
-}
-
-func (t *thumbnailer) getQuality(width, height uint, format string) Quality {
-	defaultQuality := Quality{
-		Quality:    config.Get().QualityDefault,
-		QualityMin: config.Get().QualityDefault,
-		Iterations: 100,
-	}
-
-	result := defaultQuality
-	halfPerimeter := width + height
-
-	for _, qualityFormat := range config.Get().Quality {
-		if qualityFormat.Format == format {
-			result.Quality = qualityFormat.Quality
-			result.QualityMin = qualityFormat.QualityMin
-			result.Iterations = qualityFormat.Iterations
-
-			for _, condition := range qualityFormat.Conditions {
-				if halfPerimeter >= condition.From && halfPerimeter < condition.To {
-					result.Quality = condition.Quality
-					result.QualityMin = condition.QualityMin
-					result.Iterations = condition.Iterations
-					break
-				}
-			}
-			break
-		}
-	}
-
-	if result.Quality <= 0 {
-		result = defaultQuality
-	}
-	if result.Quality > 100 {
-		result.Quality = 100
-	}
-	if result.QualityMin <= 0 {
-		result.QualityMin = result.Quality
-	}
-	if result.QualityMin > 100 {
-		result.QualityMin = 100
-	}
-	if result.QualityMin > result.Quality {
-		result.QualityMin = result.Quality
-	}
-	if result.Iterations <= 0 {
-		result.Iterations = 100
-	}
-
-	return result
-}
-
-func (t *thumbnailer) execMagick(origin, destination string, params []string) (err error) {
-	params = append([]string{origin}, append(params, destination)...)
-	_, err = helper.Exec("convert", params...)
-	if err != nil {
-		return
-	}
-	return
-}
-
-func NewThumbnailer() Thumbnailer {
+func NewThumbnailer(logger logging.Logger) Thumbnailer {
 	result := &thumbnailer{}
+	result.logger = logger
 	return result
 }

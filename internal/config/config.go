@@ -5,18 +5,17 @@ type Config struct {
 	SignatureSalt      string `yaml:"signature_salt" envconfig:"GOKARU_SIGNATURE_SALT" default:"secret"`
 	SignatureAlgorithm string `yaml:"signature_algorithm" envconfig:"GOKARU_SIGNATURE_ALGORITHM" default:"murmur"`
 	StoragePath        string `yaml:"storage_path" envconfig:"GOKARU_STORAGE_PATH" default:"./storage/"`
-	Padding            uint   `yaml:"padding" default:"10"`
-	QualityDefault     uint   `yaml:"quality_default" default:"80"`
+	EnforceWebp        bool   `yaml:"enforce_webp" envconfig:"GOKARU_ENFORCE_WEBP" default:"true"`
+	Padding            uint   `yaml:"padding" envconfig:"GOKARU_PADDING" default:"10"`
+	QualityDefault     uint   `yaml:"quality_default" envconfig:"GOKARU_QUALITY_DEFAULT" default:"80"`
 	Quality            []struct {
 		Format     string `yaml:"format"`
 		Quality    uint   `yaml:"quality"`
-		QualityMin uint   `yaml:"quality_min" default:"0"`
 		Iterations uint   `yaml:"iterations"  default:"100"`
 		Conditions []struct {
 			From       uint `yaml:"from"`
 			To         uint `yaml:"to"`
 			Quality    uint `yaml:"quality"`
-			QualityMin uint `yaml:"quality_min" default:"0"`
 			Iterations uint `yaml:"iterations"  default:"100"`
 		}
 	} `yaml:"quality"`

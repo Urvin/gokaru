@@ -1,7 +1,5 @@
 package thumbnailer
 
-import "gopkg.in/gographics/imagick.v3/imagick"
-
 const (
 	// CAST_RESIZE_TENSILE Растяжение
 	CAST_RESIZE_TENSILE = 2
@@ -26,15 +24,4 @@ const (
 
 	// CAST_TRIM_PADDING Добавляет 10 пикселей вокруг изображения при обрезке полей
 	CAST_TRIM_PADDING = 256
-
-	FORMAT_JPG  = "jpg"
-	FORMAT_PNG  = "png"
-	FORMAT_WEBP = "webp"
-	FORMAT_GIF  = "gif"
-
-	RESIZE_FILTER = imagick.FILTER_SINC
 )
-
-var FORMATS_ALLOWED = []string{FORMAT_JPG, FORMAT_PNG, FORMAT_WEBP, FORMAT_GIF}
-var FORMATS_OPAQUE = []string{FORMAT_JPG}
-var FORMATS_ANIMATED = []string{FORMAT_WEBP, FORMAT_GIF}

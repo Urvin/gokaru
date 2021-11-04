@@ -1,5 +1,6 @@
 ARG GOLANG_VERSION=1.17.2
-FROM golang:${GOLANG_VERSION}-alpine3.14
+ARG ALPINE_VERSION=3.14
+FROM golang:${GOLANG_VERSION}-alpine${ALPINE_VERSION}
 LABEL maintainer="Yuriy Gorbachev <yuriy@gorbachev.rocks>"
 
 #----------------------------------------------------------------------------------------------------------------------#
@@ -148,6 +149,8 @@ RUN rm -rf /var/cache/apk/*
 
 ARG MODULE_PATH
 ENV MODULE_ABS_PATH="/go/src/${MODULE_PATH}"
+
+RUN mkdir /var/log/gokaru/
 
 WORKDIR ${MODULE_ABS_PATH}
 COPY go.mod go.sum ./

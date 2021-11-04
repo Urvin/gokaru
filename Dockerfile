@@ -24,10 +24,11 @@ ARG LIBHEIF_VERSION=1.12.0
 RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
 
 RUN apk update && apk upgrade
-RUN apk add pkgconfig libtool
+RUN apk add pkgconfig libtool git
 RUN apk add libffi zlib zlib-static glib expat libxml2 libexif libpng libpng-static libwebp xz fftw libgsf orc giflib libimagequant rav1e
 RUN apk add zlib-dev glib-dev expat-dev libxml2-dev libexif-dev libpng-dev libwebp-dev xz-dev fftw-dev libgsf-dev orc-dev giflib-dev libimagequant-dev rav1e-dev
 RUN apk add build-base make nasm cmake meson curl
+RUN go get -u -v github.com/ahmetb/govvv
 
 ARG DEPS_PATH=/tmp/deps
 RUN mkdir ${DEPS_PATH}
@@ -152,5 +153,7 @@ WORKDIR ${MODULE_ABS_PATH}
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-ENTRYPOINT go run cmd/gokaru/main.go
+RUN govvv build -v -o /usr/local/bin/gokaru cmd/gokaru/main.go
 
+CMD ["gokaru"]
+EXPOSE 8081

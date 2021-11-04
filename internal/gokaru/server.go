@@ -21,6 +21,7 @@ import (
 const TIME_FORMAT = "Mon, 02 Jan 2006 15:04:05 GMT"
 
 type server struct {
+	version            string
 	router             *router.Router
 	signatureGenerator security.SignatureGenerator
 	storage            storage.Storage
@@ -56,7 +57,7 @@ func (s *server) initStorage() {
 
 func (s *server) requestMiddleware(context *fasthttp.RequestCtx) {
 	s.router.Handler(context)
-	context.Response.Header.Set(fasthttp.HeaderServer, "Gokaru")
+	context.Response.Header.Set(fasthttp.HeaderServer, s.version)
 }
 
 func (s *server) healthHandler(context *fasthttp.RequestCtx) {
@@ -322,11 +323,12 @@ func (s *server) getMiniatureInfoFromContext(context *fasthttp.RequestCtx) (mini
 	return
 }
 
-func NewServer(st storage.Storage, g security.SignatureGenerator, l logging.Logger) Server {
-	result := &server{}
-	result.signatureGenerator = g
-	result.storage = st
-	result.logger = l
-	result.thumbnailer = thumbnailer.NewThumbnailer(l)
-	return result
+func NewServer(v string, st storage.Storage, g security.SignatureGenerator, l logging.Logger) Server {
+	s := &server{}
+	s.version = "Gokaru v" + v
+	s.signatureGenerator = g
+	s.storage = st
+	s.logger = l
+	s.thumbnailer = thumbnailer.NewThumbnailer(l)
+	return s
 }

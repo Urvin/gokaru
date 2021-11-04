@@ -9,6 +9,8 @@ import (
 	"github.com/urvin/gokaru/internal/vips"
 )
 
+var Version string
+
 func main() {
 	logging.Init()
 	logger := logging.GetLogger()
@@ -28,7 +30,7 @@ func main() {
 	}
 	defer vips.Shutdown()
 
-	server := gokaru.NewServer(getStorage(), getSignatureGenerator(), logger)
+	server := gokaru.NewServer(Version, getStorage(), getSignatureGenerator(), logger)
 	err = server.Start()
 	if err != nil {
 		logger.Fatal("Gokaru crashed:" + err.Error())

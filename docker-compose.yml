@@ -8,11 +8,11 @@ services:
       args:
           MODULE_PATH: github.com/urvin/gokaru
     environment:
-      - GOKARU_STORAGE_PATH=/var/gokaru_storage/
+      - GOKARU_STORAGE_PATH=/var/gokaru/storage/
     ports:
       - "8101:8101"
     restart: unless-stopped
     volumes:
       - "./:/go/src/github.com/urvin/gokaru"
-      - "./storage/:/var/gokaru_storage/"
-      - "./logs/:/var/log/gokaru/"
+      - "./storage/:/var/gokaru/storage/:z"
+      - "./logs/:/var/log/gokaru/:z"

@@ -29,7 +29,7 @@ func Get() Config {
 }
 
 func readYml(cfg *Config) (err error) {
-	f, er := os.Open("config.yml")
+	f, er := os.Open("/var/gokaru/config.yml")
 	if er != nil {
 		err = er
 		return

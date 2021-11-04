@@ -69,7 +69,7 @@ func (s *server) healthHandler(context *fasthttp.RequestCtx) {
 }
 
 func (s *server) faviconHandler(context *fasthttp.RequestCtx) {
-	fasthttp.ServeFile(context, "./assets/favicon.ico")
+	fasthttp.ServeFile(context, "/var/gokaru/favicon.ico")
 	context.SetStatusCode(fasthttp.StatusOK)
 }
 

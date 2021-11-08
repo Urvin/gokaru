@@ -109,3 +109,5 @@ void vips_cleanup();
 int vips_thumbnail_go(VipsImage *in, VipsImage **out, int width, int height);
 
 int vips_getpoint_go(VipsImage *in, int x, int y, double *bg, int *bgn);
+
+int is_16bit(VipsInterpretation interpretation);

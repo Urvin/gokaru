@@ -292,9 +292,11 @@ vips_image_hasalpha_go(VipsImage * in) {
 #if VIPS_SUPPORT_HASALPHA
   return vips_image_hasalpha(in);
 #else
-  return( in->Bands == 2 ||
-		      (in->Bands == 4 && in->Type != VIPS_INTERPRETATION_CMYK) ||
-		      in->Bands > 4 );
+    return (
+        (image->Bands == 2 && image->Type == VIPS_INTERPRETATION_B_W) ||
+        (image->Bands == 4 && image->Type != VIPS_INTERPRETATION_CMYK) ||
+        (image->Bands == 5 && image->Type == VIPS_INTERPRETATION_CMYK)
+    );
 #endif
 }
 
@@ -457,10 +459,23 @@ vips_sharpen_go(VipsImage *in, VipsImage **out, double sigma) {
 
 int
 vips_flatten_go(VipsImage *in, VipsImage **out, double r, double g, double b) {
-  VipsArrayDouble *bg = vips_array_double_newv(3, r, g, b);
-  int res = vips_flatten(in, out, "background", bg, NULL);
-  vips_area_unref((VipsArea *)bg);
-  return res;
+    int res = 0;
+
+    if(vips_image_hasalpha_go(in)) {
+        if (is_16bit(in->Type)) {
+            r = 65535 * r / 255;
+            g = 65535 * g / 255;
+            b = 65535 * b / 255;
+        }
+        VipsArrayDouble *bg = vips_array_double_newv(3, r, g, b);
+        res = vips_flatten(in, out,
+            "background", bg,
+            "max_alpha", is_16bit(in->Type) ? 65535.0 : 255.0,
+            NULL);
+    } else {
+    	*out = vips_image_copy_memory(in);
+    }
+    return res;
 }
 
 int
@@ -798,4 +813,9 @@ int vips_getpoint_go(VipsImage *in, int x, int y, double *bg, int *bgn)
         return 1;
     }
     return 1;
+}
+
+int is_16bit(VipsInterpretation interpretation) {
+  return interpretation == VIPS_INTERPRETATION_RGB16 ||
+         interpretation == VIPS_INTERPRETATION_GREY16;
 }

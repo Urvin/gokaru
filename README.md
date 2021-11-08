@@ -1,7 +1,7 @@
 # Gokaru storage server
 
 A [golang][golang] lightweight storage and thumbnail server. Storages images for further thumbnailing and any raw files
-you want. Thumbnails are creating with Mozjpeg, ZopfliPNG and WebP support.
+you want. Thumbnails are creating with Mozjpeg, ZopfliPNG, WebP and AVIF support.
 
 ## Requirements
 
@@ -95,8 +95,9 @@ used.
 The resulting cast flag should be an integer, obtained via bitwise OR among available cast flags.
 
 **Define format**
-Gokaru accepts PNG, GIF, WEBP and JPG output. If the origin image is animated and output format supports animation,
-output would be also animated. Also, Gokaru sends WEBP format to browser accepting image/webp regardless your extension.
+Gokaru accepts PNG, GIF, WEBP, AVIF and JPG output. If the origin image is animated and output format supports animation,
+output would be also animated.
+Also, Gokaru can response with WEBP format to browser accepting image/webp regardless your extension.
 
 **Calculate security signature**
 
@@ -153,12 +154,11 @@ MumMur3 is shorter than MD5, that is better for URLs, and is a default Gokaru si
 Request /source_type/signature/category/width/height/cast/filename.extension one
 
 ```bash
-#md5
-wget http://localhost:8101/image/3ac8ee6f420b812ec95176bbb54d7653/example/100/200/8/your_first_image.jpg
-```
-```bash
 #murmur
 wget http://localhost:8101/image/1d7ulp9/example/100/200/8/your_first_image.jpg
+
+# or md5
+wget http://localhost:8101/image/3ac8ee6f420b812ec95176bbb54d7653/example/100/200/8/your_first_image.jpg
 ```
 
 ### Cast flags
@@ -171,6 +171,15 @@ wget http://localhost:8101/image/1d7ulp9/example/100/200/8/your_first_image.jpg
 - _CAST_OPAGUE_BACKGROUND = 64_ - set image white opaque background
 - _CAST_TRANSPARENT_BACKGROUND = 128_ - create a transparent background for an image
 - _CAST_TRIM_PADDING = 265_ - Adds 10px (or other, according to config.yml) padding around your trimmed image
+
+## Environment variables
+- _GOKARU_PORT_ - int / default 8101 - port, which Gokaru should use for http access
+- _GOKARU_SIGNATURE_ALGORITHM_ - string / "murmur" or "md5" / default murmur - signature algorithm
+- _GOKARU_SIGNATURE_SALT_ - string - secret signature salt
+- _GOKARU_STORAGE_PATH_ - string / default "./storage" - path, where files should be placed in 
+- _GOKARU_ENFORCE_WEBP_ - bool / default true - enforce WebP format for every thumbnail request
+- _GOKARU_PADDING_ - int / default 10 - padding for _CAST_TRIM_PADDING_  magick
+- _GOKARU_QUALITY_DEFAULT_ - fallback image quality, if not specified in config.yml
 
 ## Clients
 

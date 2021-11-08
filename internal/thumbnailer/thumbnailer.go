@@ -203,6 +203,7 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 		B: 255,
 	}
 	trimmed := false
+	flattened := false
 
 	if err = image.Rad2Float(); err != nil {
 		return err
@@ -223,6 +224,7 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 	// set opaque background
 	if options.OpaqueBackground() || image.HasAlpha() && !options.ImageType().SupportsAlpha() {
 		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d flatten to white", imageId))
+		flattened = true
 		err = image.Flatten(whiteColor)
 		if err != nil {
 			return
@@ -307,7 +309,7 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 			offX,
 			offY,
 			whiteColor,
-			options.ImageType().SupportsAlpha())
+			!flattened && options.ImageType().SupportsAlpha())
 		if err != nil {
 			return
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/urvin/gokaru/internal/storage"
 	"github.com/urvin/gokaru/internal/thumbnailer"
 	"github.com/valyala/fasthttp"
+	"io/ioutil"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -64,19 +65,19 @@ func (s *server) healthHandler(context *fasthttp.RequestCtx) {
 	context.SetStatusCode(fasthttp.StatusOK)
 	_, err := context.WriteString(fasthttp.StatusMessage(fasthttp.StatusOK))
 	if err != nil {
+		context.SetStatusCode(fasthttp.StatusInternalServerError)
 		s.logger.Error("[server][health] Could not write output: " + err.Error())
 	}
 }
 
 func (s *server) faviconHandler(context *fasthttp.RequestCtx) {
 	fasthttp.ServeFile(context, "/var/gokaru/favicon.ico")
-	context.SetStatusCode(fasthttp.StatusOK)
 }
 
 func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 	origin, err := s.getOriginInfoFromContext(context)
 	if err != nil {
-		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		s.serveError(context, fasthttp.StatusBadRequest, "Could not upload origin")
 		s.logger.Error("[server][upload] Invalid input data: " + err.Error())
 		return
 	}
@@ -91,7 +92,7 @@ func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 			contentType != "image/webp" &&
 			contentType != "image/png" &&
 			contentType != "image/jpeg" {
-			context.Error("Uploaded file is not an image, "+contentType+" uploaded", fasthttp.StatusBadRequest)
+			s.serveError(context, fasthttp.StatusBadRequest, "Uploaded file is not an image")
 			s.logger.Error("Gokaru.upload: uploaded file is not an image, " + contentType + " given")
 			return
 		}
@@ -99,37 +100,39 @@ func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
 
 	err = s.storage.Write(origin, uploadedData)
 	if err != nil {
-		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		s.serveError(context, fasthttp.StatusInternalServerError, "Could not upload origin")
 		s.logger.Error("[server][upload] Could not upload file: " + err.Error())
 		return
 	}
 
+	s.logger.Info("[server][upload] File uploaded: " + origin.Category + "/" + origin.Name)
 	context.SetStatusCode(fasthttp.StatusCreated)
 }
 
 func (s *server) removeHandler(context *fasthttp.RequestCtx) {
 	origin, err := s.getOriginInfoFromContext(context)
 	if err != nil {
-		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		s.serveError(context, fasthttp.StatusBadRequest, "Could not remove files")
 		s.logger.Error("[server][remove] Invalid input data: " + err.Error())
 		return
 	}
 
 	_ = s.storage.Remove(origin)
+	s.logger.Info("[server][remove] File removed: " + origin.Category + "/" + origin.Name)
 	context.SetStatusCode(fasthttp.StatusOK)
 }
 
 func (s *server) originHandler(context *fasthttp.RequestCtx) {
 	origin, err := s.getOriginInfoFromContext(context)
 	if err != nil {
-		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		s.serveError(context, fasthttp.StatusBadRequest, "Could not read origin")
 		s.logger.Error("[server][origin] Invalid input data: " + err.Error())
 		return
 	}
 
 	info, err := s.storage.Read(origin)
 	if err != nil {
-		context.Error("Could not read origin", fasthttp.StatusInternalServerError)
+		s.serveError(context, fasthttp.StatusInternalServerError, "Could not read origin")
 		s.logger.Error("[server][origin] Could not read origin file: " + err.Error())
 	}
 
@@ -140,7 +143,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 
 	miniature, err := s.getMiniatureInfoFromContext(context)
 	if err != nil {
-		context.Error("Could not upload origin", fasthttp.StatusInternalServerError)
+		s.serveError(context, fasthttp.StatusBadRequest, "Could not thumbnail origin")
 		s.logger.Error("[server][thumbnail] Invalid input data: " + err.Error())
 		return
 	}
@@ -150,7 +153,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 	// check signature
 	generatedSignature := s.signatureGenerator.Sign(miniature)
 	if signature != generatedSignature {
-		context.SetStatusCode(fasthttp.StatusForbidden)
+		s.serveError(context, fasthttp.StatusForbidden, "Signature mismatch")
 		s.logger.Warn("[server][thumbnail] Signature mismatch")
 		return
 	}
@@ -175,7 +178,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 		originInfo, err := s.storage.Read(&origin)
 		if err != nil {
-			context.Error("Could not read origin", fasthttp.StatusInternalServerError)
+			s.serveError(context, fasthttp.StatusInternalServerError, "Could not read origin")
 			s.logger.Error("[server][thumbnail] Could not read origin: " + err.Error())
 			return
 		}
@@ -188,14 +191,14 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 
 		thumbnailData, later, err := s.thumbnailer.Thumbnail(originInfo.Contents, to)
 		if err != nil {
-			context.Error("Could not create thumbnail", fasthttp.StatusInternalServerError)
+			s.serveError(context, fasthttp.StatusInternalServerError, "Could not create thumbnail")
 			s.logger.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
 			return
 		}
 
 		err = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, thumbnailData)
 		if err != nil {
-			context.Error("Could not save thumbnail", fasthttp.StatusInternalServerError)
+			s.serveError(context, fasthttp.StatusInternalServerError, "Could not save thumbnail")
 			s.logger.Error("[server][thumbnail] Could not save thumbnail: " + err.Error())
 			return
 		}
@@ -227,7 +230,7 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 	} else {
 		info, err := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
 		if err != nil {
-			context.Error("Could not read thumbnail", fasthttp.StatusInternalServerError)
+			s.serveError(context, fasthttp.StatusInternalServerError, "Could not read thumbnail")
 			s.logger.Error("[server][thumbnail] Could not read thumbnail file: " + err.Error())
 			return
 		}
@@ -321,6 +324,26 @@ func (s *server) getMiniatureInfoFromContext(context *fasthttp.RequestCtx) (mini
 		err = errors.New("cast should not be less tan 0")
 	}
 	return
+}
+
+func (s *server) serveError(context *fasthttp.RequestCtx, statusCode int, title string) {
+	context.Response.Reset()
+	context.SetStatusCode(statusCode)
+
+	httpAccept := string(context.Request.Header.Peek(fasthttp.HeaderAccept))
+	if strings.Contains(httpAccept, "text/html") {
+		tb, err := ioutil.ReadFile("/var/gokaru/error.html")
+		if err != nil {
+			s.logger.Error("[server][serve] Could not read file: " + err.Error())
+			return
+		}
+
+		ts := string(tb)
+		ts = strings.Replace(ts, "#CODE#", strconv.Itoa(statusCode), -1)
+		ts = strings.Replace(ts, "#TITLE#", title, -1)
+		context.SetContentType("text/html; charset=utf-8")
+		context.SetBodyString(ts)
+	}
 }
 
 func NewServer(v string, st storage.Storage, g security.SignatureGenerator, l logging.Logger) Server {

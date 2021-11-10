@@ -38,6 +38,7 @@ COPY --from=builder /usr/local/lib /usr/local/lib
 
 COPY --from=builder /go/src/${MODULE_PATH}/config.yml /var/gokaru/
 COPY --from=builder /go/src/${MODULE_PATH}/assets/favicon.ico /var/gokaru/
+COPY --from=builder /go/src/${MODULE_PATH}/assets/error.html /var/gokaru/
 
 CMD ["gokaru"]
 EXPOSE 8081

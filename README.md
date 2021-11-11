@@ -174,6 +174,7 @@ wget http://localhost:8101/image/3ac8ee6f420b812ec95176bbb54d7653/example/100/20
 
 ## Environment variables
 - _GOKARU_PORT_ - int / default 8101 - port, which Gokaru should use for http access
+- _GOKARU_MAX_UPLOAD_SIZE_ - int / default 100 - maximum upload file sile in MB
 - _GOKARU_SIGNATURE_ALGORITHM_ - string / "murmur" or "md5" / default murmur - signature algorithm
 - _GOKARU_SIGNATURE_SALT_ - string - secret signature salt
 - _GOKARU_STORAGE_PATH_ - string / default "./storage" - path, where files should be placed in 

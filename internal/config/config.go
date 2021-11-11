@@ -2,6 +2,7 @@ package config
 
 type Config struct {
 	Port               int    `yaml:"port" envconfig:"GOKARU_PORT" default:"8101"`
+	MaxUploadSize      int    `yaml:"max_upload_size" envconfig:"GOKARU_MAX_UPLOAD_SIZE" default:"100"`
 	SignatureSalt      string `yaml:"signature_salt" envconfig:"GOKARU_SIGNATURE_SALT" default:"secret"`
 	SignatureAlgorithm string `yaml:"signature_algorithm" envconfig:"GOKARU_SIGNATURE_ALGORITHM" default:"murmur"`
 	StoragePath        string `yaml:"storage_path" envconfig:"GOKARU_STORAGE_PATH" default:"./storage/"`

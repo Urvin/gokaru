@@ -32,7 +32,14 @@ type server struct {
 
 func (s *server) Start() error {
 	s.initRouter()
-	return fasthttp.ListenAndServe(":"+strconv.Itoa(config.Get().Port), s.requestMiddleware)
+
+	server := &fasthttp.Server{
+		Name:               s.version,
+		Handler:            s.router.Handler,
+		MaxRequestBodySize: config.Get().MaxUploadSize * 1024 * 1024,
+	}
+
+	return server.ListenAndServe(":" + strconv.Itoa(config.Get().Port))
 }
 
 func (s *server) initRouter() {
@@ -54,11 +61,6 @@ func (s *server) initRouter() {
 
 func (s *server) initStorage() {
 	s.storage = storage.NewFileStorage(config.Get().StoragePath)
-}
-
-func (s *server) requestMiddleware(context *fasthttp.RequestCtx) {
-	s.router.Handler(context)
-	context.Response.Header.Set(fasthttp.HeaderServer, s.version)
 }
 
 func (s *server) healthHandler(context *fasthttp.RequestCtx) {

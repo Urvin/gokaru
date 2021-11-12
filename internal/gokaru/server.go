@@ -44,6 +44,8 @@ func (s *server) Start() error {
 
 func (s *server) initRouter() {
 	s.router = router.New()
+	s.router.NotFound = s.notFoundHandler
+
 	s.router.GET("/health", s.healthHandler)
 	s.router.GET("/favicon.ico", s.faviconHandler)
 
@@ -74,6 +76,11 @@ func (s *server) healthHandler(context *fasthttp.RequestCtx) {
 
 func (s *server) faviconHandler(context *fasthttp.RequestCtx) {
 	fasthttp.ServeFile(context, "/var/gokaru/favicon.ico")
+}
+
+func (s *server) notFoundHandler(context *fasthttp.RequestCtx) {
+	s.logger.Warn("[server] Path not found: " + string(context.URI().Path()))
+	s.serveError(context, fasthttp.StatusNotFound, fasthttp.StatusMessage(fasthttp.StatusNotFound))
 }
 
 func (s *server) uploadHandler(context *fasthttp.RequestCtx) {
@@ -345,6 +352,9 @@ func (s *server) serveError(context *fasthttp.RequestCtx, statusCode int, title 
 		ts = strings.Replace(ts, "#TITLE#", title, -1)
 		context.SetContentType("text/html; charset=utf-8")
 		context.SetBodyString(ts)
+	} else {
+		context.SetContentType("text/plain; charset=utf-8")
+		context.SetBodyString(title)
 	}
 }
 

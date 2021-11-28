@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -28,6 +29,9 @@ type server struct {
 	storage            storage.Storage
 	logger             logging.Logger
 	thumbnailer        thumbnailer.Thumbnailer
+
+	queueMutex sync.Mutex
+	queue      map[string]chan struct{}
 }
 
 func (s *server) Start() error {
@@ -179,7 +183,29 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 	}
 
+	queueKey := miniature.Type + "/" + miniature.Category + "/" + miniature.Name + "/" +
+		strconv.Itoa(miniature.Width) + "/" + strconv.Itoa(miniature.Height) + "/" +
+		strconv.Itoa(miniature.Cast) + "/" + thumbnailFileExtension
+
+	queueMutexLocked := true
+	s.queueMutex.Lock()
+	queueItem := s.queue[queueKey]
+	if queueItem != nil {
+		s.queueMutex.Unlock()
+		queueMutexLocked = false
+		<-queueItem
+	}
+
 	if !s.storage.ThumbnailExists(miniature, thumbnailFileExtension) {
+		queueItem = make(chan struct{})
+		s.queue[queueKey] = queueItem
+		s.queueMutex.Unlock()
+		queueMutexLocked = false
+		defer func() {
+			close(queueItem)
+			delete(s.queue, queueKey)
+		}()
+
 		origin := contracts.Origin{
 			Type:     miniature.Type,
 			Category: miniature.Category,
@@ -212,6 +238,8 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 			return
 		}
 
+		time.Sleep(8 * time.Second)
+
 		s.serveBytes(context, thumbnailData, thumbnailFileExtension)
 
 		if later != nil {
@@ -237,6 +265,11 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		}
 
 	} else {
+		if queueMutexLocked {
+			s.queueMutex.Unlock()
+			queueMutexLocked = false
+		}
+
 		info, err := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
 		if err != nil {
 			s.serveError(context, fasthttp.StatusInternalServerError, "Could not read thumbnail")
@@ -365,5 +398,6 @@ func NewServer(v string, st storage.Storage, g security.SignatureGenerator, l lo
 	s.storage = st
 	s.logger = l
 	s.thumbnailer = thumbnailer.NewThumbnailer(l)
+	s.queue = make(map[string]chan struct{})
 	return s
 }

@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"runtime"
 	"strconv"
 )
 
@@ -20,6 +21,12 @@ type thumbnailer struct {
 }
 
 func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbnail []byte, later func([]byte) ([]byte, error), err error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	defer vips.Cleanup()
+
+	defer runtime.KeepAlive(origin)
+
 	originMime := fileinfo.MimeByData(origin)
 	originType := vips.ImageTypeByByMime(originMime)
 	if originType == vips.ImageTypeUnknown {
@@ -40,7 +47,6 @@ func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbn
 
 	image := new(vips.Image)
 	defer image.Clear()
-	defer vips.Cleanup()
 
 	err = image.Load(origin, originType, 1, 1.0, pages)
 	if err != nil {
@@ -219,6 +225,9 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 		if err != nil {
 			return
 		}
+		if err = image.CopyMemory(); err != nil {
+			return err
+		}
 	}
 
 	// set opaque background
@@ -228,6 +237,9 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 		err = image.Flatten(whiteColor)
 		if err != nil {
 			return
+		}
+		if err = image.CopyMemory(); err != nil {
+			return err
 		}
 	}
 
@@ -245,6 +257,9 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 			return
 		}
 		trimmed = true
+		if err = image.CopyMemory(); err != nil {
+			return err
+		}
 	}
 
 	// resize
@@ -295,6 +310,9 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 		if err != nil {
 			return
 		}
+		if err = image.CopyMemory(); err != nil {
+			return err
+		}
 	}
 
 	if forceExtent || options.Extent() {
@@ -312,6 +330,9 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 			!flattened && options.ImageType().SupportsAlpha())
 		if err != nil {
 			return
+		}
+		if err = image.CopyMemory(); err != nil {
+			return err
 		}
 	}
 

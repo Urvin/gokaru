@@ -76,7 +76,11 @@ g_free_go(void **buf) {
 
 void
 swap_and_clear(VipsImage **in, VipsImage *out) {
-  clear_image(in);
+  if (G_IS_OBJECT(*in)) {
+    g_clear_object(in);
+  } else {
+    clear_image(in);
+  }
   *in = out;
 }
 

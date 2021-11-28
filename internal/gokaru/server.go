@@ -202,66 +202,14 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 		s.queueMutex.Unlock()
 		queueMutexLocked = false
 		defer func() {
+			s.queueMutex.Lock()
 			close(queueItem)
 			delete(s.queue, queueKey)
+			s.queueMutex.Unlock()
 		}()
 
-		origin := contracts.Origin{
-			Type:     miniature.Type,
-			Category: miniature.Category,
-			Name:     miniature.Name,
-		}
-		originInfo, err := s.storage.Read(&origin)
-		if err != nil {
-			s.serveError(context, fasthttp.StatusInternalServerError, "Could not read origin")
-			s.logger.Error("[server][thumbnail] Could not read origin: " + err.Error())
-			return
-		}
-
-		to := thumbnailer.ThumbnailOptions{}
-		to.SetWidth(uint(miniature.Width))
-		to.SetHeight(uint(miniature.Height))
-		to.SetImageTypeWithExtension(thumbnailFileExtension)
-		to.SetOptionsWithCast(uint(miniature.Cast))
-
-		thumbnailData, later, err := s.thumbnailer.Thumbnail(originInfo.Contents, to)
-		if err != nil {
-			s.serveError(context, fasthttp.StatusInternalServerError, "Could not create thumbnail")
-			s.logger.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
-			return
-		}
-
-		err = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, thumbnailData)
-		if err != nil {
-			s.serveError(context, fasthttp.StatusInternalServerError, "Could not save thumbnail")
-			s.logger.Error("[server][thumbnail] Could not save thumbnail: " + err.Error())
-			return
-		}
-
+		thumbnailData := s.processThumbnail(context, miniature, thumbnailFileExtension)
 		s.serveBytes(context, thumbnailData, thumbnailFileExtension)
-
-		if later != nil {
-			go func() {
-				info, er := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
-				if er != nil {
-					s.logger.Error("[server][later] Could not read thumbnail: " + er.Error())
-					return
-				}
-
-				data, er := later(info.Contents)
-				if er != nil {
-					s.logger.Error("[server][later] Could not later thumbnail: " + er.Error())
-					return
-				}
-
-				er = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, data)
-				if er != nil {
-					s.logger.Error("[server][later] Could not save thumbnail: " + er.Error())
-					return
-				}
-			}()
-		}
-
 	} else {
 		if queueMutexLocked {
 			s.queueMutex.Unlock()
@@ -277,6 +225,63 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 
 		s.serveFile(context, info)
 	}
+}
+
+func (s *server) processThumbnail(context *fasthttp.RequestCtx, miniature *contracts.Miniature, thumbnailFileExtension string) (thumbnailData []byte) {
+	origin := contracts.Origin{
+		Type:     miniature.Type,
+		Category: miniature.Category,
+		Name:     miniature.Name,
+	}
+	originInfo, err := s.storage.Read(&origin)
+	if err != nil {
+		s.serveError(context, fasthttp.StatusInternalServerError, "Could not read origin")
+		s.logger.Error("[server][thumbnail] Could not read origin: " + err.Error())
+		return
+	}
+
+	to := thumbnailer.ThumbnailOptions{}
+	to.SetWidth(uint(miniature.Width))
+	to.SetHeight(uint(miniature.Height))
+	to.SetImageTypeWithExtension(thumbnailFileExtension)
+	to.SetOptionsWithCast(uint(miniature.Cast))
+
+	thumbnailData, later, err := s.thumbnailer.Thumbnail(originInfo.Contents, to)
+	if err != nil {
+		s.serveError(context, fasthttp.StatusInternalServerError, "Could not create thumbnail")
+		s.logger.Error("[server][thumbnail] Could not create thumbnail: " + err.Error())
+		return
+	}
+
+	err = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, thumbnailData)
+	if err != nil {
+		s.serveError(context, fasthttp.StatusInternalServerError, "Could not save thumbnail")
+		s.logger.Error("[server][thumbnail] Could not save thumbnail: " + err.Error())
+		return
+	}
+
+	if later != nil {
+		go func() {
+			info, er := s.storage.ReadThumbnail(miniature, thumbnailFileExtension)
+			if er != nil {
+				s.logger.Error("[server][later] Could not read thumbnail: " + er.Error())
+				return
+			}
+
+			data, er := later(info.Contents)
+			if er != nil {
+				s.logger.Error("[server][later] Could not later thumbnail: " + er.Error())
+				return
+			}
+
+			er = s.storage.WriteThumbnail(miniature, thumbnailFileExtension, data)
+			if er != nil {
+				s.logger.Error("[server][later] Could not save thumbnail: " + er.Error())
+				return
+			}
+		}()
+	}
+	return
 }
 
 func (s *server) serveFile(context *fasthttp.RequestCtx, info contracts.File) {

@@ -238,8 +238,6 @@ func (s *server) thumbnailHandler(context *fasthttp.RequestCtx) {
 			return
 		}
 
-		time.Sleep(8 * time.Second)
-
 		s.serveBytes(context, thumbnailData, thumbnailFileExtension)
 
 		if later != nil {

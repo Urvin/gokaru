@@ -1,4 +1,4 @@
-ARG BUILDER_VERSION=1.0.0
+ARG BUILDER_VERSION=1.0.1
 ARG ALPINE_VERSION=3.14
 FROM urvinio/gokaru-builder:${BUILDER_VERSION} AS builder
 LABEL maintainer="Yuriy Gorbachev <yuriy@gorbachev.rocks>"

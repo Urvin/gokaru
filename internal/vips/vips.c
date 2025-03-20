@@ -808,7 +808,7 @@ vips_cleanup() {
 }
 
 int vips_thumbnail_go(VipsImage *in, VipsImage **out, int width, int height) {
-  return vips_thumbnail_image(in, out, width, "height", height, NULL);
+  return vips_thumbnail_image(in, out, width, "height", height, "size", VIPS_SIZE_FORCE, NULL);
 }
 
 int vips_getpoint_go(VipsImage *in, int x, int y, double *bg, int *bgn)

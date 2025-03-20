@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"github.com/n-marshall/go-cp"
 	"github.com/urvin/gokaru/internal/contracts"
-	"github.com/urvin/gokaru/internal/fileinfo"
+	"github.com/urvin/gokaru/internal/server/helper"
 	"io/ioutil"
 	"mime"
 	"os"
@@ -47,12 +47,12 @@ func (fs *fileStorage) hashFileName(fileName string) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func (fs *fileStorage) getOriginFilename(origin *contracts.Origin) string {
+func (fs *fileStorage) getOriginFilename(origin *contracts.OriginDto) string {
 	hashedFileName := fs.hashFileName(origin.Name)
 	hashedFilePath := hashedFileName[0:2] + "/" + hashedFileName[2:4]
 
 	result := fs.storagePath + "/" + origin.Type
-	if origin.Type == contracts.TYPE_IMAGE {
+	if origin.Type == contracts.STORAGE_TYPE_IMAGE {
 		result = result + "/" + IMAGE_ORIGIN_PATH
 	}
 	result = result + "/" + origin.Category + "/" + hashedFilePath + "/" + hashedFileName
@@ -60,7 +60,7 @@ func (fs *fileStorage) getOriginFilename(origin *contracts.Origin) string {
 	return result
 }
 
-func (fs *fileStorage) getImageThumbnailFilename(miniature *contracts.Miniature, extension string, del bool) string {
+func (fs *fileStorage) getImageThumbnailFilename(miniature *contracts.MiniatureDto, del bool) string {
 	hashedFileName := fs.hashFileName(miniature.Name)
 	hashedFilePath := hashedFileName[0:2] + "/" + hashedFileName[2:4]
 
@@ -68,7 +68,7 @@ func (fs *fileStorage) getImageThumbnailFilename(miniature *contracts.Miniature,
 	extensionPart := "*"
 	if !del {
 		castPath = strconv.Itoa(miniature.Width) + "x" + strconv.Itoa(miniature.Height) + "x" + strconv.Itoa(miniature.Cast)
-		extensionPart = extension
+		extensionPart = miniature.Extension
 	}
 
 	result := fs.storagePath + "/" + miniature.Type + "/" + IMAGE_THUMBNAIL_PATH
@@ -81,7 +81,7 @@ func (fs *fileStorage) SetStoragePath(path string) {
 	fs.storagePath, _ = filepath.Abs(path)
 }
 
-func (fs *fileStorage) Write(origin *contracts.Origin, data []byte) (err error) {
+func (fs *fileStorage) Write(origin *contracts.OriginDto, data []byte) (err error) {
 
 	destinationFileName := fs.getOriginFilename(origin)
 	destinationPath := filepath.Dir(destinationFileName)
@@ -113,14 +113,14 @@ func (fs *fileStorage) Write(origin *contracts.Origin, data []byte) (err error) 
 	return
 }
 
-func (fs *fileStorage) Remove(origin *contracts.Origin) (err error) {
+func (fs *fileStorage) Remove(origin *contracts.OriginDto) (err error) {
 	originFileName := fs.getOriginFilename(origin)
 	defer func(name string) {
 		_ = os.Remove(name)
 	}(originFileName)
 
 	if origin.Type == "image" {
-		miniature := contracts.Miniature{
+		miniature := contracts.MiniatureDto{
 			Type:     origin.Type,
 			Category: origin.Category,
 			Name:     origin.Name,
@@ -128,7 +128,7 @@ func (fs *fileStorage) Remove(origin *contracts.Origin) (err error) {
 			Height:   0,
 			Cast:     0,
 		}
-		thumbnailWildcard := fs.getImageThumbnailFilename(&miniature, "*", true)
+		thumbnailWildcard := fs.getImageThumbnailFilename(&miniature, true)
 		defer func(fs *fileStorage, wildcard string) {
 			_ = fs.removeByWildcard(wildcard)
 		}(fs, thumbnailWildcard)
@@ -137,7 +137,7 @@ func (fs *fileStorage) Remove(origin *contracts.Origin) (err error) {
 	return
 }
 
-func (fs *fileStorage) getFileInfo(fileName string) (info contracts.File, err error) {
+func (fs *fileStorage) getFileInfo(fileName string) (info contracts.FileDto, err error) {
 	file, err := os.Open(fileName)
 	if err != nil {
 		return
@@ -158,32 +158,32 @@ func (fs *fileStorage) getFileInfo(fileName string) (info contracts.File, err er
 
 	info.ContentType = mime.TypeByExtension(filepath.Ext(fileName))
 	if info.ContentType == "" {
-		info.ContentType = fileinfo.MimeByData(info.Contents)
+		info.ContentType = helper.MimeByData(info.Contents)
 	}
 
 	return
 }
 
-func (fs *fileStorage) Read(origin *contracts.Origin) (info contracts.File, err error) {
+func (fs *fileStorage) Read(origin *contracts.OriginDto) (info contracts.FileDto, err error) {
 	originFileName := fs.getOriginFilename(origin)
 	info, err = fs.getFileInfo(originFileName)
 	return
 }
 
-func (fs *fileStorage) ThumbnailExists(miniature *contracts.Miniature, extension string) bool {
-	thumbnailFileName := fs.getImageThumbnailFilename(miniature, extension, false)
+func (fs *fileStorage) ThumbnailExists(miniature *contracts.MiniatureDto) bool {
+	thumbnailFileName := fs.getImageThumbnailFilename(miniature, false)
 	_, err := os.Stat(thumbnailFileName)
 	return !os.IsNotExist(err)
 }
 
-func (fs *fileStorage) ReadThumbnail(miniature *contracts.Miniature, extension string) (info contracts.File, err error) {
-	thumbnailFileName := fs.getImageThumbnailFilename(miniature, extension, false)
+func (fs *fileStorage) ReadThumbnail(miniature *contracts.MiniatureDto) (info contracts.FileDto, err error) {
+	thumbnailFileName := fs.getImageThumbnailFilename(miniature, false)
 	info, err = fs.getFileInfo(thumbnailFileName)
 	return
 }
 
-func (fs *fileStorage) WriteThumbnail(miniature *contracts.Miniature, extension string, data []byte) (err error) {
-	thumbnailFileName := fs.getImageThumbnailFilename(miniature, extension, false)
+func (fs *fileStorage) WriteThumbnail(miniature *contracts.MiniatureDto, data []byte) (err error) {
+	thumbnailFileName := fs.getImageThumbnailFilename(miniature, false)
 	thumbnailPath := filepath.Dir(thumbnailFileName)
 
 	err = fs.createPathIfNotExists(thumbnailPath)

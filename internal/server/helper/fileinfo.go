@@ -1,4 +1,4 @@
-package fileinfo
+package helper
 
 import (
 	"mime"

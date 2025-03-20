@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -10,6 +11,10 @@ func FileNameWithoutExtension(fileName string) string {
 		return fileName[:pos]
 	}
 	return fileName
+}
+
+func FileNameExtension(fileName string) string {
+	return strings.ToLower(strings.TrimLeft(filepath.Ext(fileName), "."))
 }
 
 func Atoi(input string) int {

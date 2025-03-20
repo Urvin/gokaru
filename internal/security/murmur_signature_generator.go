@@ -14,17 +14,9 @@ func (sg *murmurSignatureGenerator) SetSalt(salt string) {
 	sg.salt = salt
 }
 
-func (sg *murmurSignatureGenerator) Sign(miniature *contracts.Miniature) string {
+func (sg *murmurSignatureGenerator) Sign(miniature *contracts.MiniatureDto) string {
 	hash := murmur3.New32()
-	_, err := hash.Write([]byte(
-		sg.salt + "/" +
-			miniature.Type + "/" +
-			miniature.Category + "/" +
-			miniature.Name + "/" +
-			strconv.Itoa(miniature.Width) + "/" +
-			strconv.Itoa(miniature.Height) + "/" +
-			strconv.Itoa(miniature.Cast),
-	))
+	_, err := hash.Write([]byte(sg.salt + "/" + miniature.Hash()))
 	if err != nil {
 		return ""
 	}

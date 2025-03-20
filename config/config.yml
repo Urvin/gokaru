@@ -1,5 +1,5 @@
 # listen port
-port: 8101
+port: 80
 
 #maximum upload size in MB
 max_upload_size: 100
@@ -12,6 +12,12 @@ signature_algorithm: 'murmur'
 
 # Enforce Webp
 enforce_webp: true
+
+# number of thumbnailing processes
+thumbnailer_procs: 0
+
+# number of thumbnailing postprocesses
+thumbnailer_post_procs: 0
 
 # padding value for add padding cast
 padding: 10
@@ -30,6 +36,7 @@ quality:
       - from: 1000
         to: 1800
         quality: 85
+
   - format: webp
     quality: 80
     conditions:
@@ -39,6 +46,7 @@ quality:
       - from: 1000
         to: 1800
         quality: 85
+
   - format: png
     quality: 80 # any less than 100 to quantize
     iterations: 200 # zopfli iterations, 0 not to zopflify

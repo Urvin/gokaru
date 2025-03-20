@@ -1,18 +1,21 @@
 module github.com/urvin/gokaru
 
-go 1.17
+go 1.24.1
 
 require (
-	github.com/andybalholm/brotli v1.0.2 // indirect
-	github.com/fasthttp/router v1.4.3 // indirect
-	github.com/kelseyhightower/envconfig v1.4.0 // indirect
-	github.com/klauspost/compress v1.13.4 // indirect
-	github.com/n-marshall/go-cp v0.0.0-20180115193924-61436d3b7cfa // indirect
-	github.com/savsgio/gotils v0.0.0-20210907153846-c06938798b52 // indirect
-	github.com/sirupsen/logrus v1.8.1 // indirect
-	github.com/spaolacci/murmur3 v1.1.0 // indirect
+	github.com/fasthttp/router v1.5.4
+	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/n-marshall/go-cp v0.0.0-20180115193924-61436d3b7cfa
+	github.com/sarulabs/di v2.0.0+incompatible
+	github.com/spaolacci/murmur3 v1.1.0
+	github.com/valyala/fasthttp v1.59.0
+	gopkg.in/yaml.v3 v3.0.1
+)
+
+require (
+	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
+	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.30.0 // indirect
-	golang.org/x/sys v0.0.0-20210514084401-e8d321eab015 // indirect
-	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )

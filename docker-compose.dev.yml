@@ -4,17 +4,18 @@ services:
   gokaru:
     build:
       context: .
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/dev.Dockerfile
       args:
           MODULE_PATH: github.com/urvin/gokaru
-    image: gokaru
-    container_name: gokaru
+    image: gokaru-dev
+    container_name: gokaru-dev
     environment:
       - GOKARU_STORAGE_PATH=/var/gokaru/storage/
     ports:
-      - "8101:80"
+      - "6101:80"
     restart: unless-stopped
     volumes:
       - "./:/go/src/github.com/urvin/gokaru"
+      - "./assets/:/var/gokaru/assets/:z"
+      - "./config/:/var/gokaru/config/:z"
       - "./storage/:/var/gokaru/storage/:z"
-    #command: tail -f /dev/null

@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/urvin/gokaru/internal/config"
-	"github.com/urvin/gokaru/internal/fileinfo"
 	"github.com/urvin/gokaru/internal/helper"
-	"github.com/urvin/gokaru/internal/logging"
+	helper2 "github.com/urvin/gokaru/internal/server/helper"
 	"github.com/urvin/gokaru/internal/vips"
 	"io/ioutil"
+	"log/slog"
 	"math"
 	"os"
 	"runtime"
@@ -16,7 +16,7 @@ import (
 )
 
 type thumbnailer struct {
-	logger  logging.Logger
+	logger  *slog.Logger
 	imageId uint64
 }
 
@@ -27,7 +27,7 @@ func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbn
 
 	defer runtime.KeepAlive(origin)
 
-	originMime := fileinfo.MimeByData(origin)
+	originMime := helper2.MimeByData(origin)
 	originType := vips.ImageTypeByByMime(originMime)
 	if originType == vips.ImageTypeUnknown {
 		err = errors.New("unknown origin image type")
@@ -54,7 +54,11 @@ func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbn
 	}
 
 	imageId := t.newImageId()
-	t.logger.Info(fmt.Sprintf("[thumbnailer] #%d NEW THUMBNAIL", imageId))
+	t.logger.Info(
+		fmt.Sprintf("#%d new thumbnail", imageId),
+		"context", "thumbnailer",
+		"options", fmt.Sprintf("%#v", options),
+	)
 
 	if animationSupport && image.IsAnimated() {
 		err = t.transformFrames(imageId, origin, image, originType, &options)
@@ -71,6 +75,12 @@ func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbn
 	}
 
 	q := t.getQuality(uint(image.Width()), uint(image.Height()), options.ImageType())
+
+	t.logger.Info(
+		fmt.Sprintf("#%d quality check", imageId),
+		"context", "thumbnailer",
+		"quality", q.Quality,
+	)
 
 	switch options.ImageType() {
 	case vips.ImageTypeJPEG:
@@ -105,7 +115,10 @@ func (t *thumbnailer) Thumbnail(origin []byte, options ThumbnailOptions) (thumbn
 func (t *thumbnailer) transformFrames(imageId uint64, origin []byte, image *vips.Image, originType vips.ImageType, options *ThumbnailOptions) (err error) {
 	if options.Trim() {
 		options.SetTrim(false)
-		t.logger.Warn("Trim is not supported for animated images")
+		t.logger.Warn(
+			"Trim is not supported for animated images",
+			"context", "thumbnailer",
+		)
 	}
 
 	imgWidth := image.Width()
@@ -122,7 +135,10 @@ func (t *thumbnailer) transformFrames(imageId uint64, origin []byte, image *vips
 		}
 	}
 
-	t.logger.Info(fmt.Sprintf("[thumbnailer] #%d is animated with %d frames", imageId, framesCount))
+	t.logger.Info(
+		fmt.Sprintf("#%d is animated with %d frames", imageId, framesCount),
+		"context", "thumbnailer",
+	)
 
 	delay, err := image.GetIntSliceDefault("delay", nil)
 	if err != nil {
@@ -220,7 +236,11 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 
 	// set transparent background
 	if options.TransparentBackground() && !options.OpaqueBackground() && options.ImageType().SupportsAlpha() {
-		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d set transparent background", imageId))
+		t.logger.Info(
+			fmt.Sprintf("#%d set transparent background", imageId),
+			"context", "thumbnailer",
+		)
+
 		err = createTransparentBackground(image)
 		if err != nil {
 			return
@@ -232,7 +252,11 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 
 	// set opaque background
 	if options.OpaqueBackground() || image.HasAlpha() && !options.ImageType().SupportsAlpha() {
-		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d flatten to white", imageId))
+		t.logger.Info(
+			fmt.Sprintf("#%d flatten to white", imageId),
+			"context", "thumbnailer",
+		)
+
 		flattened = true
 		err = image.Flatten(whiteColor)
 		if err != nil {
@@ -245,7 +269,11 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 
 	// trim
 	if options.Trim() {
-		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d smart trim", imageId))
+		t.logger.Info(
+			fmt.Sprintf("#%d smart trim", imageId),
+			"context", "thumbnailer",
+		)
+
 		err = image.Trim(
 			10,
 			true,
@@ -298,14 +326,22 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 
 	padding := config.Get().Padding
 	if options.Padding() && options.Trim() && resizeWidth > 2*padding && resizeHeight > 2*padding {
-		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d add padding", imageId))
+		t.logger.Info(
+			fmt.Sprintf("#%d add padding", imageId),
+			"context", "thumbnailer",
+		)
+
 		resizeWidth -= 2 * padding
 		resizeHeight -= 2 * padding
 		forceExtent = true
 	}
 
 	if shouldResize && (uint(image.Width()) != resizeWidth || uint(image.Height()) != resizeHeight) || trimmed {
-		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d resize to %dx%d", imageId, resizeWidth, resizeHeight))
+		t.logger.Info(
+			fmt.Sprintf("#%d resize to %dx%d", imageId, resizeWidth, resizeHeight),
+			"context", "thumbnailer",
+		)
+
 		err = image.Thumbnail(int(resizeWidth), int(resizeHeight))
 		if err != nil {
 			return
@@ -316,7 +352,10 @@ func (t *thumbnailer) transformFrame(imageId uint64, image *vips.Image, options 
 	}
 
 	if forceExtent || options.Extent() {
-		t.logger.Info(fmt.Sprintf("[thumbnailer] #%d extent image to %dx%d with transparent background: %t", imageId, options.Width(), options.Height(), options.ImageType().SupportsAlpha()))
+		t.logger.Info(
+			fmt.Sprintf("#%d extent image to %dx%d with transparent background: %t", imageId, options.Width(), options.Height(), options.ImageType().SupportsAlpha()),
+			"context", "thumbnailer",
+		)
 
 		offX := (int(options.Width()) - image.Width()) / 2
 		offY := (int(options.Height()) - image.Height()) / 2
@@ -396,7 +435,7 @@ func (t *thumbnailer) getQuality(width, height uint, imgtype vips.ImageType) qua
 }
 
 func (t *thumbnailer) laterOptimizePng(uncompressed []byte) (compressed []byte, err error) {
-	originMime := fileinfo.MimeByData(uncompressed)
+	originMime := helper2.MimeByData(uncompressed)
 	originType := vips.ImageTypeByByMime(originMime)
 	if originType == vips.ImageTypeUnknown {
 		err = errors.New("unknown origin image type")
@@ -447,7 +486,7 @@ func (t *thumbnailer) newImageId() uint64 {
 	return t.imageId
 }
 
-func NewThumbnailer(logger logging.Logger) Thumbnailer {
+func NewThumbnailer(logger *slog.Logger) Thumbnailer {
 	result := &thumbnailer{}
 	result.logger = logger
 	return result

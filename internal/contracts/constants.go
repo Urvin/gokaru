@@ -1,4 +1,4 @@
 package contracts
 
-const TYPE_IMAGE = "image"
-const TYPE_FILE = "file"
+const STORAGE_TYPE_IMAGE = "image"
+const STORAGE_TYPE_FILE = "file"

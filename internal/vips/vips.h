@@ -4,7 +4,7 @@
 #include <vips/vips7compat.h>
 #include <vips/vector.h>
 
-enum ImgproxyImageTypes {
+enum VipsImageTypes {
   UNKNOWN = 0,
   JPEG,
   PNG,
